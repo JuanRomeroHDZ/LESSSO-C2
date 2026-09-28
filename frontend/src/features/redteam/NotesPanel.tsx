@@ -15,8 +15,15 @@ export function NotesPanel() {
     setTimeout(() => setSaveStatus(autoSaveEnabled ? 'Guardado en disco' : 'Solo guardado en sesión local'), 800);
   };
 
-  const insertTemplate = () => {
-    const template = `\n## 🔴 Título de la Vulnerabilidad\n**Severidad:** ALTA | **CVSS:** 8.5\n\n### Descripción\nExplica brevemente la vulnerabilidad...\n\n### Prueba de Concepto (PoC)\n\`\`\`bash\n# Pega tu código, comando o script aquí\n\`\`\`\n\n### Impacto\n¿Qué puede hacer el atacante con esto?\n\n### Remediación\n¿Cómo parcharlo?\n---\n`;
+  const insertTemplate = (type: 'cve' | 'web' | 'privesc') => {
+    let template = '';
+    if (type === 'cve') {
+        template = `\n## 🔴 Título de la Vulnerabilidad\n**Severidad:** ALTA | **CVSS:** 8.5\n\n### Descripción\nExplica brevemente la vulnerabilidad...\n\n### Prueba de Concepto (PoC)\n\`\`\`bash\n# Pega tu código o comando aquí\n\`\`\`\n\n### Remediación\n¿Cómo parcharlo?\n---\n`;
+    } else if (type === 'web') {
+        template = `\n## 🌐 Enumeración Web (Puerto 80/443)\n**Tecnologías:** Apache, PHP, MySQL\n\n### Directorios Descubiertos\n| Directorio | Estado | Tamaño |\n|---|---|---|\n| /admin | 403 | 12KB |\n| /uploads | 200 | 0KB |\n\n### Notas Adicionales\nEl panel admin.php está expuesto.\n---\n`;
+    } else if (type === 'privesc') {
+        template = `\n## 🔓 Escalada de Privilegios (PrivEsc)\n**De:** www-data | **Hacia:** root\n\n### Vector de Ataque\n(Ej. SUID bit en /usr/bin/find, o permiso de sudo en Nmap sin password).\n\n### Explotación\n\`\`\`bash\nsudo nmap --interactive\nnmap> !sh\n# id\n# uid=0(root)\n\`\`\`\n---\n`;
+    }
     setRedTeamNotes(redTeamNotes + template);
   }
 
@@ -45,14 +52,25 @@ export function NotesPanel() {
     <div className="flex flex-col h-full min-h-[600px] flex-1 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden" data-color-mode={theme}>
       
       {/* HEADER */}
-      <div className="flex justify-between items-center px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shrink-0">
+      <div className="flex justify-between items-center px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shrink-0 overflow-visible">
         <h2 className="text-xs font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest flex items-center">
           <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
           Bitácora de Auditoría
         </h2>
         <div className="flex items-center space-x-3">
           <span className={`text-[9px] font-bold uppercase tracking-wider ${autoSaveEnabled ? 'text-slate-400' : 'text-orange-500 animate-pulse'}`}>{saveStatus}</span>
-          <button onClick={insertTemplate} className="px-3 py-1.5 bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 text-[10px] font-bold uppercase rounded hover:bg-fuchsia-200 transition-colors" title="Inserta una plantilla estándar para reportar un CVE">+ Plantilla CPTS</button>
+          
+          <div className="relative group">
+             <button className="px-3 py-1.5 bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 text-[10px] font-bold uppercase rounded hover:bg-fuchsia-200 transition-colors">
+               + Plantillas ▼
+             </button>
+             <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md shadow-xl hidden group-hover:block z-50">
+                <button onClick={() => insertTemplate('cve')} className="block w-full text-left px-4 py-2 text-[10px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">🔴 Hallazgo CVE</button>
+                <button onClick={() => insertTemplate('web')} className="block w-full text-left px-4 py-2 text-[10px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">🌐 Enum. Web</button>
+                <button onClick={() => insertTemplate('privesc')} className="block w-full text-left px-4 py-2 text-[10px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">🔓 PrivEsc (Root)</button>
+             </div>
+          </div>
+
           <button onClick={downloadNotes} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded shadow-lg shadow-indigo-500/20 hover:bg-indigo-500 transition-colors">Exportar .MD</button>
         </div>
       </div>
@@ -71,3 +89,4 @@ export function NotesPanel() {
     </div>
   );
 }
+

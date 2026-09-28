@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useScanStore } from '../../core/store/useScanStore'
 
@@ -12,12 +12,17 @@ export function ScanConfig() {
     versionIntensity, maxOsTries,
     evasionFrag, evasionMTU, evasionDecoy, evasionMac, evasionSourcePort, evasionSpoofIp, badsum, randomizeHosts, zombieIp, ftpBounce,
     customTcpFlags, proxies, customDns, dataString, dataHex, dataLength,
-    savedProfiles, autoScanInterval, isScanning,
+    savedProfiles, autoScanInterval, isScanning, availableInterfaces, fetchInterfaces,
     onlyOpenPorts, osScanGuess, scriptDefault, minHostgroup, maxHostgroup,
     nmapOutputFormat, nmapOutputPrefix, nmapOutputDir,
     setScanType, setTiming, setDiscoveryMode, setField, toggleOSDetection, toggleServiceDetection, toggleAllPorts, toggleVerbose, setNseCategory, setNseArgs,
     saveCustomProfile, loadCustomProfile, deleteCustomProfile
   } = useScanStore()
+
+  useEffect(() => {
+    // Al cargar el componente de configuración, obtenemos las interfaces de red de Rust.
+    fetchInterfaces();
+  }, [fetchInterfaces]);
 
   const selectOutputDir = async () => {
     try {
@@ -29,7 +34,7 @@ export function ScanConfig() {
   return (
     <section className="flex flex-col h-full relative">
       <div className="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-2 shrink-0">
-         <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">⚙️ Configuración del Motor</h2>
+         <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">⚙ Configuración del Motor</h2>
       </div>
 
       <div className="flex border-b border-slate-200 dark:border-slate-700 shrink-0 overflow-x-auto custom-scrollbar px-2 pt-2 bg-white dark:bg-slate-950">
@@ -134,7 +139,15 @@ export function ScanConfig() {
              <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Banderas TCP (--scanflags)</label><input type="text" value={customTcpFlags} onChange={(e) => setField('customTcpFlags', e.target.value)} disabled={scanType === 'ping'} placeholder="URGACKPSHRSTSYNFIN" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none font-mono disabled:opacity-50" /></div>
              <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Proxies (--proxies)</label><input type="text" value={proxies} onChange={(e) => setField('proxies', e.target.value)} placeholder="http://1.1.1.1:8080" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none font-mono" /></div>
              <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Resolución DNS (-n / -R)</label><select value={dnsResolution} onChange={(e) => setField('dnsResolution', e.target.value)} className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 rounded text-[10px] outline-none font-mono" title="Siempre usa '-n' (No resolución DNS) en el CPTS para ganar muchísima velocidad."><option value="">Automático</option><option value="-n">Nunca (-n) Ultra Rápido</option><option value="-R">Siempre (-R)</option></select></div>
-             <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Interfaz Local (-e)</label><input type="text" value={networkInterface} onChange={(e) => setField('networkInterface', e.target.value)} placeholder="tun0" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none font-mono" /></div>
+             
+             {/* NUEVO: ComboBox Inteligente para Interfaces de Red */}
+             <div className="space-y-0.5">
+               <label className="text-[9px] font-bold text-slate-500 uppercase">Interfaz Local (-e)</label>
+               <input list="ifaces" value={networkInterface} onChange={(e) => setField('networkInterface', e.target.value)} placeholder="tun0" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none font-mono" />
+               <datalist id="ifaces">
+                 {availableInterfaces.map(iface => <option key={iface} value={iface} />)}
+               </datalist>
+             </div>
           </div>
         )}
 

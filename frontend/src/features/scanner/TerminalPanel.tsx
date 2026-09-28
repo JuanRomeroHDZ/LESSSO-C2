@@ -3,15 +3,20 @@ import { listen } from '@tauri-apps/api/event'
 import { useScanStore } from '../../core/store/useScanStore'
 
 const ColorizeLine = ({ line }: { line: string }) => {
-  if (line.startsWith('Stats:')) return null;
-  if (line.includes('Discovered open port')) return <span className="text-emerald-400 font-semibold">{line}</span>;
-  if (line.startsWith('Initiating') || line.startsWith('Completed')) return <span className="text-indigo-400 italic">{line}</span>;
-  if (line.startsWith('NSE:')) return <span className="text-fuchsia-400">{line}</span>;
-  if (line.includes('Warning:') || line.includes('QUITTING') || line.includes('ERROR:')) return <span className="text-red-500 font-bold">{line}</span>;
-  if (line.includes('Nmap scan report for')) return <span className="text-sky-300 font-bold mt-3 block border-t border-slate-700/50 pt-2">{line}</span>;
+  // LIMPIEZA DE ANSI Y ASCII ART
+  // Si la línea contiene los códigos extraños de RustScan o está vacía, no la dibujamos para ahorrar GPU de React.
+  const cleanLine = line.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '').trim();
+  
+  if (!cleanLine || cleanLine.startsWith('Stats:') || cleanLine.includes('.~-') || cleanLine.includes('| {}') || cleanLine.includes('`-\'')) return null;
+  
+  if (cleanLine.includes('Discovered open port')) return <span className="text-emerald-400 font-semibold">{cleanLine}</span>;
+  if (cleanLine.startsWith('Initiating') || cleanLine.startsWith('Completed') || cleanLine.includes('Open')) return <span className="text-indigo-400 italic">{cleanLine}</span>;
+  if (cleanLine.startsWith('NSE:')) return <span className="text-fuchsia-400">{cleanLine}</span>;
+  if (cleanLine.includes('Warning:') || cleanLine.includes('QUITTING') || cleanLine.includes('ERROR:')) return <span className="text-red-500 font-bold">{cleanLine}</span>;
+  if (cleanLine.includes('Nmap scan report for')) return <span className="text-sky-300 font-bold mt-3 block border-t border-slate-700/50 pt-2">{cleanLine}</span>;
 
-  if (line.match(/^\d+\/(tcp|udp|sctp)/)) {
-    const parts = line.split(/(\s+)/);
+  if (cleanLine.match(/^\d+\/(tcp|udp|sctp)/)) {
+    const parts = cleanLine.split(/(\s+)/);
     return (
       <span>
         {parts.map((part, i) => {
@@ -25,9 +30,9 @@ const ColorizeLine = ({ line }: { line: string }) => {
     );
   }
 
-  const parts = line.split(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d+\.\d+%|\d+:\d+:\d+)/g);
+  const parts = cleanLine.split(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|\d+\.\d+%|\d+:\d+:\d+)/g);
   return (
-    <span className="text-slate-300">
+    <span className="text-slate-300 block">
       {parts.map((part, i) => {
         if (part.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/)) return <span key={i} className="text-blue-400 font-medium">{part}</span>;
         if (part.match(/\d+\.\d+%/)) return <span key={i} className="text-yellow-400 font-bold">{part}</span>;
@@ -78,7 +83,10 @@ export function TerminalPanel() {
         const etaMatch = line.match(/(\d+:\d+:\d+) remaining/);
         if (percentageMatch && etaMatch) setProgressText(`${percentageMatch[1]}% Completado | ETA: ${etaMatch[1]}`);
       } else {
-        appendOutput(line);
+        // En lugar de inyectar todo de golpe, solo inyectamos si la línea tiene sustancia para no congelar a React
+        if (line.trim().length > 2) {
+            appendOutput(line);
+        }
       }
     })
     
@@ -103,8 +111,7 @@ export function TerminalPanel() {
             </span>
             <div className="w-px h-4 bg-slate-700 mx-1 shrink-0"></div>
             
-            {/* NUEVO CLI PREVIEW INTERACTIVO */}
-            <span className="text-[10px] font-mono text-emerald-400 bg-black/30 px-2 py-0.5 rounded border border-slate-700 truncate max-w-md hidden md:block" title="Comando actual de Nmap generado por tus opciones">
+            <span className="text-[10px] font-mono text-emerald-400 bg-black/30 px-2 py-0.5 rounded border border-slate-700 truncate max-w-md hidden md:block" title="Comando actual de Nmap/Rustscan generado por tus opciones">
               $ {commandString}
             </span>
 
@@ -121,14 +128,14 @@ export function TerminalPanel() {
 
         <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap scroll-smooth relative custom-scrollbar">
           {filteredOutput.length > 0  
-            ? filteredOutput.map((line, i) => <div key={i} className="min-h-[1.25rem]"><ColorizeLine line={line} /></div>)  
+            ? filteredOutput.map((line, i) => <ColorizeLine key={i} line={line} />)  
             : <span className="text-slate-600">Terminal inactiva. Esperando comandos de LESSSO C2...</span>
           }
           <div ref={terminalEndRef} />
         </div>
 
         {!autoScroll && isScanning && !searchGrep && (
-          <button onClick={() => setAutoScroll(true)} className="absolute bottom-6 right-6 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg opacity-90 hover:opacity-100 animate-bounce uppercase tracking-wider">↓ Ver logs recientes</button>
+          <button onClick={() => setAutoScroll(true)} className="absolute bottom-6 right-6 bg-[#0b282c] text-white text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg opacity-90 hover:opacity-100 animate-bounce uppercase tracking-wider border border-teal-500/30">↓ Ver logs recientes</button>
         )}
     </section>
   )

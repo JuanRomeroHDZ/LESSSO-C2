@@ -27,6 +27,29 @@ struct HostInfo { ip: String, hostname: String, mac: String, mac_vendor: String,
 struct ScanResult { hosts: Vec<HostInfo> }
 
 #[tauri::command]
+async fn get_network_interfaces() -> Result<Vec<String>, String> {
+    let output = Command::new("ip").args(["-o", "link", "show"]).output();
+    let mut interfaces = Vec::new();
+    
+    if let Ok(out) = output {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                let parts: Vec<&str> = line.split(':').collect();
+                if parts.len() > 1 {
+                    let iface_name = parts[1].trim();
+                    if !iface_name.starts_with("lo") { 
+                        interfaces.push(iface_name.to_string());
+                    }
+                }
+            }
+            return Ok(interfaces);
+        }
+    }
+    Err("No se pudieron obtener las interfaces".to_string())
+}
+
+#[tauri::command]
 async fn check_vpn() -> Result<String, String> {
     let output = Command::new("ip").args(["-4", "addr", "show", "tun0"]).output();
     if let Ok(out) = output {
@@ -59,7 +82,6 @@ async fn connect_vpn(ovpn_path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn disconnect_vpn() -> Result<(), String> {
-    // Solución multiplataforma: Invocar el intérprete y luego los binarios absolutos.
     let mut child = Command::new("/bin/sh")
         .arg("-c")
         .arg("/usr/bin/pkexec /usr/bin/killall openvpn || /usr/bin/pkexec /usr/bin/pkill openvpn")
@@ -281,7 +303,9 @@ async fn run_rustscan(app: AppHandle, state: State<'_, ScanProcess>, target: Str
     let xml_path_str = xml_path.to_str().unwrap();
 
     let mut cmd = Command::new("rustscan");
-    cmd.arg("-a").arg(&target).arg("-b").arg("4500").arg("--");
+    // CORRECCIÓN MAGISTRAL: Le inyectamos "--accessible" a rustscan. 
+    // Esto desactiva el molesto ASCII Art de colores y la barra de progreso que congelaba React.
+    cmd.arg("-a").arg(&target).arg("-b").arg("4500").arg("--accessible").arg("--");
     cmd.args(nmap_args).arg("-oX").arg(xml_path_str).stdout(Stdio::piped()).stderr(Stdio::piped());
     
     let mut child = cmd.spawn().map_err(|e| format!("Error RustScan: Asegúrate de tener rustscan instalado.\n{}", e))?;
@@ -315,7 +339,7 @@ async fn run_rustscan(app: AppHandle, state: State<'_, ScanProcess>, target: Str
         Ok(())
     } else {  
         let _ = std::fs::remove_file(xml_path_str);
-        Err("Cancelado o con errores.".into())  
+        Err("Cancelado o con errores de permisos.".into())  
     }
 }
 
@@ -332,7 +356,7 @@ fn main() {
         .plugin(tauri_plugin_fs::init())     
         .manage(ScanProcess(AtomicU32::new(0)))
         .manage(TerminalState { stdins: Mutex::new(HashMap::new()) })
-        .invoke_handler(tauri::generate_handler![run_nmap, run_rustscan, cancel_nmap, check_vpn, connect_vpn, disconnect_vpn, start_terminal, write_terminal, kill_terminal])
+        .invoke_handler(tauri::generate_handler![run_nmap, run_rustscan, cancel_nmap, check_vpn, connect_vpn, disconnect_vpn, start_terminal, write_terminal, kill_terminal, get_network_interfaces])
         .run(tauri::generate_context!())
         .expect("Error Tauri");
 }

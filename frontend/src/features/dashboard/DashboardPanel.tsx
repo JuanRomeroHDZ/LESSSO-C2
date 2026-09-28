@@ -4,14 +4,18 @@ import { save, open } from '@tauri-apps/plugin-dialog'
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs'
 import { useScanStore, type HostInfo } from '../../core/store/useScanStore'
 
-const IANA_PORTS: Record<string, string> = { '21': 'FTP', '22': 'SSH', '23': 'Telnet', '25': 'SMTP', '53': 'DNS', '80': 'HTTP', '110': 'POP3', '143': 'IMAP', '443': 'HTTPS', '445': 'SMB', '3306': 'MySQL', '3389': 'RDP', '5432': 'PostgreSQL', '8080': 'HTTP-Alt' }
+const IANA_PORTS: Record<string, string> = { '21': 'FTP', '22': 'SSH', '23': 'Telnet', '25': 'SMTP', '53': 'DNS', '80': 'HTTP', '110': 'POP3', '143': 'IMAP', '443': 'HTTPS', '445': 'SMB', '3306': 'MySQL', '3389': 'RDP', '5432': 'PostgreSQL', '8080': 'HTTP-Alt', '8443': 'HTTPS-Alt' }
 
 const detectCVEs = (service: string, version: string) => {
-  const cves: string[] = []; const s = `${service || ''} ${version || ''}`.toLowerCase();
-  if (s.includes('openssh 8.') || s.includes('openssh 9.0') || s.includes('openssh 9.1')) cves.push('CVE-2023-38408 (RCE)');
-  if (s.includes('vsftpd 2.3.4')) cves.push('CVE-2011-2523 (Backdoor)');
-  if ((s.includes('smb') || s.includes('microsoft-ds')) && (s.includes('windows 7') || s.includes('windows server 2008'))) cves.push('MS17-010');
-  if (s.includes('apache') && s.includes('2.4.49')) cves.push('CVE-2021-41773');
+  const cves: { id: string, severity: 'critical' | 'high' | 'medium' }[] = []; 
+  const s = `${service || ''} ${version || ''}`.toLowerCase();
+  
+  if (s.includes('openssh 8.') || s.includes('openssh 9.0') || s.includes('openssh 9.1')) cves.push({ id: 'CVE-2023-38408 (RCE)', severity: 'critical' });
+  if (s.includes('vsftpd 2.3.4')) cves.push({ id: 'CVE-2011-2523 (Backdoor)', severity: 'high' });
+  if ((s.includes('smb') || s.includes('microsoft-ds')) && (s.includes('windows 7') || s.includes('windows server 2008'))) cves.push({ id: 'MS17-010', severity: 'critical' });
+  if (s.includes('apache') && s.includes('2.4.49')) cves.push({ id: 'CVE-2021-41773', severity: 'high' });
+  if (s.includes('proftpd 1.3.5')) cves.push({ id: 'CVE-2015-3306', severity: 'high' });
+  
   return cves;
 }
 
@@ -22,7 +26,14 @@ const calculateScore = (host: HostInfo) => {
        score -= 5;
        if (['21','22','23','445','3389'].includes(p.portid)) score -= 15;
        const cves = detectCVEs(p.service, p.version);
-       if (cves.length > 0) { score -= 40; vulns += cves.length; }
+       if (cves.length > 0) { 
+         cves.forEach(c => {
+           if (c.severity === 'critical') score -= 40;
+           else if (c.severity === 'high') score -= 25;
+           else score -= 10;
+         });
+         vulns += cves.length; 
+       }
     }
   });
   if (score < 0) score = 0;
@@ -41,7 +52,6 @@ export function DashboardPanel() {
   const [search, setSearch] = useState('')
   const [showDiff, setShowDiff] = useState(false)
   
-  // Filtros Avanzados (Pills)
   const [filterUp, setFilterUp] = useState(false)  
   const [filterVuln, setFilterVuln] = useState(false) 
   const [filterWeb, setFilterWeb] = useState(false) 
@@ -61,8 +71,9 @@ export function DashboardPanel() {
     return host.ip.includes(q) || (host.hostname && host.hostname.toLowerCase().includes(q)) || (host.alias && host.alias.toLowerCase().includes(q)) || (host.ports || []).some(p => (p.service || '').toLowerCase().includes(q));
   });
 
-  const { upHosts, portChartData, osChartData, globalVulns, topServicesData } = useMemo(() => {
-    let open = 0, filtered = 0, closed = 0, v = 0;
+  const { upHosts, portChartData, osChartData, sevMetrics, topServicesData } = useMemo(() => {
+    let open = 0, filtered = 0, closed = 0;
+    let crit = 0, high = 0, med = 0;
     const osMap: Record<string, number> = {};
     const srvMap: Record<string, number> = {};
 
@@ -71,7 +82,12 @@ export function DashboardPanel() {
       (h.ports || []).forEach(p => {
         if (p.state === 'open') {  
             open++;  
-            v += detectCVEs(p.service, p.version).length;  
+            const cves = detectCVEs(p.service, p.version);
+            cves.forEach(c => {
+               if(c.severity === 'critical') crit++;
+               else if(c.severity === 'high') high++;
+               else med++;
+            });
             const srv = p.service || 'unknown';
             srvMap[srv] = (srvMap[srv] || 0) + 1;
         }
@@ -83,7 +99,7 @@ export function DashboardPanel() {
 
     return {  
       upHosts: (parsedData || []).filter(h => h.status === 'up').length,  
-      globalVulns: v,  
+      sevMetrics: { crit, high, med, total: crit + high + med },  
       portChartData: [ { name: 'Abiertos', value: open }, { name: 'Filtrados', value: filtered }, { name: 'Cerrados', value: closed } ].filter(d => d.value > 0),  
       osChartData: Object.entries(osMap).map(([name, value]) => ({ name, value })),
       topServicesData: topServices
@@ -162,15 +178,15 @@ export function DashboardPanel() {
     <style>
       body{font-family:system-ui,-apple-system,sans-serif;background-color:#f1f5f9;color:#0f172a;margin:0;padding:20px}
       .container{max-width:1200px;margin:0 auto;}
-      .header-card{background:white;padding:25px;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); border-top: 5px solid #4f46e5; margin-bottom: 30px;}
-      h1{color:#1e293b;margin-top:0;font-size:1.8rem; font-weight:900;}
+      .header-card{background:white;padding:25px;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); border-top: 5px solid #0b282c; margin-bottom: 30px;}
+      h1{color:#0b282c;margin-top:0;font-size:1.8rem; font-weight:900;}
       .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;margin-top:20px;}
       .meta-item{background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;}
       .meta-label{font-size:0.75rem;text-transform:uppercase;color:#64748b;font-weight:bold;margin-bottom:4px;display:block;}
       .meta-value{font-size:0.95rem;font-weight:600;font-family:monospace;color:#334155;}
       .host-card{background:white;border-radius:12px;box-shadow:0 2px 4px rgba(0,0,0,0.05);border:1px solid #cbd5e1;overflow:hidden;margin-bottom:30px;page-break-inside:avoid;}
       .host-header{background:#f8fafc;padding:15px 20px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;}
-      .host-title{font-size:1.4rem;font-weight:900;color:#0f172a; display:flex; align-items:center; gap: 10px;}
+      .host-title{font-size:1.4rem;font-weight:900;color:#0b282c; display:flex; align-items:center; gap: 10px;}
       .badge{padding:4px 10px;border-radius:9999px;font-size:0.75rem;font-weight:bold;text-transform:uppercase;}
       .bg-green{background:#dcfce7;color:#166534;border:1px solid #22c55e;}
       .bg-red{background:#fee2e2;color:#991b1b;border:1px solid #ef4444;}
@@ -181,9 +197,9 @@ export function DashboardPanel() {
       .port-row:hover{background-color:#f8fafc;}
       .port-open{color:#059669;font-weight:900;}
       .port-other{color:#d97706;font-weight:bold;}
-      .script-block{background:#0f172a;color:#10b981;padding:12px;border-radius:6px;font-family:monospace;font-size:0.8rem;white-space:pre-wrap;margin-top:6px;border-left:3px solid #6366f1;}
-      .script-title{color:#a5b4fc;font-weight:bold;margin-bottom:4px;display:block;}
-      .section-title{background:#e0e7ff;color:#4338ca;padding:8px 15px;font-size:0.85rem;font-weight:bold;text-transform:uppercase;}
+      .script-block{background:#0b1120;color:#10b981;padding:12px;border-radius:6px;font-family:monospace;font-size:0.8rem;white-space:pre-wrap;margin-top:6px;border-left:3px solid #0b282c;}
+      .script-title{color:#5eead4;font-weight:bold;margin-bottom:4px;display:block;}
+      .section-title{background:#ccfbf1;color:#0f766e;padding:8px 15px;font-size:0.85rem;font-weight:bold;text-transform:uppercase;}
     </style></head><body><div class="container">
     
     <div class="header-card">
@@ -282,7 +298,7 @@ export function DashboardPanel() {
   if (!parsedData || parsedData.length === 0) return (
     <div className="bg-white dark:bg-slate-800 rounded-xl p-12 text-center shadow-sm flex flex-col items-center">
       <h3 className="text-slate-900 dark:text-white mb-4 font-bold text-lg">Centro de Datos Vacío</h3>
-      <button onClick={handleImport} className="px-6 py-2 bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 uppercase text-xs rounded-lg transition-all active:scale-95">Importar Workspace Anterior (.json)</button>
+      <button onClick={handleImport} className="px-6 py-2 bg-[#0b282c] text-white font-bold shadow-lg shadow-[#0b282c]/30 hover:bg-[#081e21] uppercase text-xs rounded-lg transition-all active:scale-95">Importar Workspace Anterior (.json)</button>
     </div>
   )
 
@@ -301,46 +317,59 @@ export function DashboardPanel() {
         }
       `}</style>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 shrink-0 print:hidden">
-        <div className="flex flex-col justify-center space-y-2">
-          <div className="bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-lg border border-indigo-100 dark:border-indigo-800 flex justify-between items-center"><span className="block text-[9px] font-bold text-indigo-600 dark:text-indigo-400 uppercase">Hosts Activos</span><span className="text-lg font-black text-slate-900 dark:text-white">{upHosts}/{parsedData.length}</span></div>
-          <div className={`${globalVulns > 0 ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800'} p-2 rounded-lg border flex justify-between items-center`}><span className={`block text-[9px] font-bold uppercase ${globalVulns > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>CVEs Detectados</span><span className="text-lg font-black text-slate-900 dark:text-white">{globalVulns}</span></div>
-          <div className="bg-slate-100 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-200 dark:border-slate-700 flex justify-between items-center"><span className="block text-[9px] font-bold text-slate-500 uppercase">Tiempo Auditoría</span><span className="text-xs font-mono text-slate-900 dark:text-white">{scanDuration}</span></div>
+      {/* DASHBOARD METRICS REDISEÑADOS CON SEVERIDAD */}
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-3 shrink-0 print:hidden">
+        <div className="flex flex-col justify-center space-y-2 col-span-2">
+          <div className="bg-slate-100 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-200 dark:border-slate-700 flex justify-between items-center"><span className="block text-[9px] font-bold text-slate-500 uppercase">Hosts Activos</span><span className="text-lg font-black text-slate-900 dark:text-white">{upHosts}/{parsedData.length}</span></div>
+          
+          <div className={`p-2 rounded-lg border flex flex-col justify-center ${sevMetrics.total > 0 ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/50' : 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/50'}`}>
+             <div className="flex justify-between items-center mb-1">
+               <span className={`text-[9px] font-bold uppercase ${sevMetrics.total > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>CVEs Detectados</span>
+               <span className="text-lg font-black text-slate-900 dark:text-white leading-none">{sevMetrics.total}</span>
+             </div>
+             {sevMetrics.total > 0 && (
+               <div className="flex gap-1">
+                 <div className="flex-1 bg-red-500 text-white text-[8px] font-bold px-1 py-0.5 rounded text-center" title="Críticos">{sevMetrics.crit} CRIT</div>
+                 <div className="flex-1 bg-orange-500 text-white text-[8px] font-bold px-1 py-0.5 rounded text-center" title="Altos">{sevMetrics.high} HIGH</div>
+                 <div className="flex-1 bg-yellow-500 text-white text-[8px] font-bold px-1 py-0.5 rounded text-center" title="Medios">{sevMetrics.med} MED</div>
+               </div>
+             )}
+          </div>
         </div>
         
-        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center"><span className="text-[9px] font-bold text-slate-500 uppercase">Estado de Puertos</span><div className="h-20 w-full mt-1"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={portChartData} innerRadius={20} outerRadius={35} paddingAngle={5} dataKey="value" stroke="none">{portChartData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}</Pie><RechartsTooltip contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} /></PieChart></ResponsiveContainer></div></div>
+        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center"><span className="text-[9px] font-bold text-slate-500 uppercase">Estado Puertos</span><div className="h-16 w-full mt-1"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={portChartData} innerRadius={15} outerRadius={25} paddingAngle={5} dataKey="value" stroke="none">{portChartData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}</Pie><RechartsTooltip contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} /></PieChart></ResponsiveContainer></div></div>
         
-        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center"><span className="text-[9px] font-bold text-slate-500 uppercase">Distribución OS</span><div className="h-20 w-full mt-1"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={osChartData} innerRadius={0} outerRadius={35} dataKey="value" stroke="none">{osChartData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[(index + 3) % COLORS.length]} />)}</Pie><RechartsTooltip contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} /></PieChart></ResponsiveContainer></div></div>
+        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center"><span className="text-[9px] font-bold text-slate-500 uppercase">Distribución OS</span><div className="h-16 w-full mt-1"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={osChartData} innerRadius={0} outerRadius={25} dataKey="value" stroke="none">{osChartData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[(index + 3) % COLORS.length]} />)}</Pie><RechartsTooltip contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} /></PieChart></ResponsiveContainer></div></div>
         
-        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center"><span className="text-[9px] font-bold text-slate-500 uppercase">Top Servicios</span><div className="h-20 w-full mt-1"><ResponsiveContainer width="100%" height="100%"><BarChart data={topServicesData}><XAxis dataKey="name" hide /><RechartsTooltip cursor={{fill: 'transparent'}} contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} /><Bar dataKey="count" fill="#8b5cf6" radius={[4,4,0,0]} /></BarChart></ResponsiveContainer></div></div>
+        <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center"><span className="text-[9px] font-bold text-slate-500 uppercase">Top Servicios</span><div className="h-16 w-full mt-1"><ResponsiveContainer width="100%" height="100%"><BarChart data={topServicesData}><XAxis dataKey="name" hide /><RechartsTooltip cursor={{fill: 'transparent'}} contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} /><Bar dataKey="count" fill="#0b282c" radius={[4,4,0,0]} /></BarChart></ResponsiveContainer></div></div>
 
-        <div className="flex flex-col gap-1 justify-center p-3 rounded-lg border border-slate-200 dark:border-slate-700 overflow-y-auto custom-scrollbar">
-          <button onClick={() => setPreviewModal('json')} className="w-full text-[9px] font-bold uppercase bg-slate-800 dark:bg-slate-700 text-white py-1.5 rounded hover:bg-slate-700 shadow-sm transition-colors">Ver / Exportar JSON</button>
+        <div className="flex flex-col gap-1 justify-center p-2 rounded-lg border border-slate-200 dark:border-slate-700 overflow-y-auto custom-scrollbar">
+          <button onClick={() => setPreviewModal('json')} className="w-full text-[9px] font-bold uppercase bg-slate-800 dark:bg-slate-700 text-white py-1.5 rounded hover:bg-slate-700 shadow-sm transition-colors">Exportar JSON</button>
           <div className="flex gap-1 w-full">
-             <button onClick={() => setPreviewModal('md')} className="flex-1 text-[9px] font-bold uppercase bg-fuchsia-600 text-white py-1.5 rounded hover:bg-fuchsia-500 shadow-sm transition-colors">Ver MD</button>
-             <button onClick={() => setPreviewModal('html')} className="flex-1 text-[9px] font-bold uppercase bg-orange-600 text-white py-1.5 rounded hover:bg-orange-500 shadow-sm transition-colors">Ver HTML</button>
+             <button onClick={() => setPreviewModal('md')} className="flex-1 text-[9px] font-bold uppercase bg-teal-600 text-white py-1.5 rounded hover:bg-teal-500 shadow-sm transition-colors">.MD</button>
+             <button onClick={() => setPreviewModal('html')} className="flex-1 text-[9px] font-bold uppercase bg-[#0b282c] text-white py-1.5 rounded hover:bg-[#081e21] shadow-sm transition-colors">.HTML</button>
           </div>
           <button onClick={handlePrint} className="w-full text-[9px] font-bold uppercase border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 py-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 shadow-sm transition-colors">Imprimir PDF</button>
-          <button onClick={clearHistory} className="w-full text-[9px] font-bold uppercase border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 py-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm transition-colors">Borrar Memoria</button>
+          <button onClick={clearHistory} className="w-full text-[9px] font-bold uppercase border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 py-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm transition-colors mt-1">Borrar Datos</button>
         </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 shrink-0 print:hidden justify-between items-center bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
         <input type="text" value={search} onChange={(e) => {setSearch(e.target.value); setVisibleCount(20);}} placeholder="Buscar IP, puerto:22, os:linux..." className="flex-1 px-3 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-[11px] outline-none dark:text-white" />
         
-        {/* Píldoras de Filtro Rápido (Activos, Web, CVEs) */}
+        {/* Píldoras de Filtro Rápido */}
         <div className="flex gap-1.5">
-          <button onClick={() => {setFilterUp(!filterUp); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterUp ? 'bg-indigo-100 border-indigo-300 text-indigo-700 dark:bg-indigo-900/50 dark:border-indigo-500/50 dark:text-indigo-300 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🟢 Activos</button>
-          <button onClick={() => {setFilterWeb(!filterWeb); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterWeb ? 'bg-sky-100 border-sky-300 text-sky-700 dark:bg-sky-900/50 dark:border-sky-500/50 dark:text-sky-300 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🌐 Web</button>
-          <button onClick={() => {setFilterVuln(!filterVuln); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterVuln ? 'bg-red-100 border-red-300 text-red-700 dark:bg-red-900/50 dark:border-red-500/50 dark:text-red-400 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🚨 CVEs</button>
+          <button onClick={() => {setFilterUp(!filterUp); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterUp ? 'bg-[#0b282c] border-[#0b282c] text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🟢 Activos</button>
+          <button onClick={() => {setFilterWeb(!filterWeb); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterWeb ? 'bg-[#0b282c] border-[#0b282c] text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🌐 Web</button>
+          <button onClick={() => {setFilterVuln(!filterVuln); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterVuln ? 'bg-red-600 border-red-600 text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🚨 CVEs</button>
           <button onClick={toggleCompactMode} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${compactMode ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>≡ Comp</button>
-          <label className={`flex items-center space-x-1.5 cursor-pointer px-3 py-1 rounded-full border transition-colors ${historyData.length > 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 hover:bg-emerald-100' : 'opacity-50 border-slate-200'}`}><input type="checkbox" checked={showDiff} disabled={historyData.length === 0} onChange={() => setShowDiff(!showDiff)} className="rounded w-3 h-3 accent-emerald-500" /><span className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400">Diff</span></label>
+          <label className={`flex items-center space-x-1.5 cursor-pointer px-3 py-1 rounded-full border transition-colors ${historyData.length > 0 ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-200 hover:bg-teal-100' : 'opacity-50 border-slate-200'}`}><input type="checkbox" checked={showDiff} disabled={historyData.length === 0} onChange={() => setShowDiff(!showDiff)} className="rounded w-3 h-3 accent-[#0b282c]" /><span className="text-[10px] font-bold uppercase text-teal-700 dark:text-teal-400">Diff</span></label>
         </div>
       </div>
 
       <div className="flex-1 overflow-visible space-y-4 pb-8 print:block print:space-y-6">
-        <div className="hidden print:block mb-8 border-b-2 border-slate-800 pb-4 print-force-colors">
-            <h1 className="text-3xl font-black text-slate-900 uppercase tracking-widest font-['Poppins']">LESSSO C2 Report</h1>
+        <div className="hidden print:block mb-8 border-b-2 border-[#0b282c] pb-4 print-force-colors">
+            <h1 className="text-3xl font-black text-[#0b282c] uppercase tracking-widest font-['Poppins']">LESSSO C2 Report</h1>
             <p className="text-sm font-bold text-slate-500 mt-2">Objetivo: {target} | Fecha: {new Date().toLocaleString()}</p>
         </div>
 
@@ -355,7 +384,7 @@ export function DashboardPanel() {
             <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-2 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center print:bg-white print:border-slate-300">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-[13px] font-black text-slate-900 dark:text-white print:text-black">{host.ip}</h2>
+                  <h2 className="text-[13px] font-black text-[#0b282c] dark:text-white print:text-black">{host.ip}</h2>
                   {host.hostname && <span className="text-[9px] font-bold text-slate-500 bg-slate-200 dark:bg-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 print:bg-slate-100 print:text-slate-800">{host.hostname}</span>}
                 </div>
                 <div className="flex gap-1.5 items-center mt-0.5">
@@ -363,7 +392,7 @@ export function DashboardPanel() {
                   <span title={`Score: ${score}/100`} className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${color} print:bg-slate-100 print:text-black print:border`}>Sec Grade: {grade}</span>
                   
                   {hasHostScripts && (
-                    <button onClick={() => toggleHostExpand(host.ip)} className="ml-2 px-1.5 py-0.5 bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 text-[9px] font-bold uppercase rounded-md border border-fuchsia-300 dark:border-fuchsia-800/50 hover:bg-fuchsia-200 flex items-center gap-1 transition-colors print:hidden">
+                    <button onClick={() => toggleHostExpand(host.ip)} className="ml-2 px-1.5 py-0.5 bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 text-[9px] font-bold uppercase rounded-md border border-teal-300 dark:border-teal-800/50 hover:bg-teal-200 flex items-center gap-1 transition-colors print:hidden">
                       {hostExpanded ? 'Ocultar Info Extra' : `[+] ${host.scripts!.length} Scripts de Host`}
                     </button>
                   )}
@@ -372,10 +401,10 @@ export function DashboardPanel() {
             </div>
 
             {hostExpanded && hasHostScripts && (
-              <div className="bg-slate-900 border-b border-slate-700 p-3 overflow-x-auto custom-scrollbar shadow-inner print:bg-slate-50 print:border-slate-300 print:shadow-none print:break-inside-avoid">
+              <div className="bg-[#0b1120] border-b border-slate-700 p-3 overflow-x-auto custom-scrollbar shadow-inner print:bg-slate-50 print:border-slate-300 print:shadow-none print:break-inside-avoid">
                 {host.scripts?.map((s, idx) => (
                   <div key={idx} className="mb-2 last:mb-0">
-                    <span className="text-[10px] font-black uppercase text-fuchsia-400 border-b border-fuchsia-900 block mb-1 print:text-fuchsia-700 print:border-fuchsia-300">↳ {s.id}</span>
+                    <span className="text-[10px] font-black uppercase text-teal-400 border-b border-teal-900 block mb-1 print:text-teal-700 print:border-teal-300">↳ {s.id}</span>
                     <pre className="text-[10px] font-mono text-emerald-400 whitespace-pre-wrap leading-relaxed print:text-black">{s.output}</pre>
                   </div>
                 ))}
@@ -411,15 +440,15 @@ export function DashboardPanel() {
                         <>
                           <tr key={pidx} className={`border-b border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors ${isNewPort ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''} print:border-slate-200 print:break-inside-avoid`}>
                             <td className={`px-3 ${pyClass} font-bold text-slate-900 dark:text-slate-200 print:text-black flex items-center gap-1`}>
-                              {hasScripts && <button onClick={() => togglePortExpand(portKey)} className="text-[9px] w-4 h-4 flex items-center justify-center bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400 font-black rounded hover:bg-indigo-500 hover:text-white transition-colors print:hidden">{isExpanded ? '-' : '+'}</button>}
+                              {hasScripts && <button onClick={() => togglePortExpand(portKey)} className="text-[9px] w-4 h-4 flex items-center justify-center bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-400 font-black rounded hover:bg-teal-500 hover:text-white transition-colors print:hidden">{isExpanded ? '-' : '+'}</button>}
                               {port.portid}/{port.protocol}{isNewPort && <span className="ml-1 bg-emerald-500 text-white text-[8px] px-1 py-0.5 rounded-sm">NUEVO</span>}
                             </td>
                             <td className={`px-3 ${pyClass}`}><span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase w-fit ${port.state === 'open' ? 'text-emerald-600 dark:text-emerald-400 print:text-emerald-700' : 'text-orange-500 dark:text-orange-400 print:text-orange-600'}`}>{port.state}</span></td>
-                            <td className={`px-3 ${pyClass} font-medium text-slate-700 dark:text-slate-300 print:text-slate-800 flex flex-col`}><span>{port.service || '-'}</span>{ianaDesc && !compactMode && <span className="text-[8px] text-indigo-500 dark:text-indigo-400">{ianaDesc}</span>}</td>
+                            <td className={`px-3 ${pyClass} font-medium text-slate-700 dark:text-slate-300 print:text-slate-800 flex flex-col`}><span>{port.service || '-'}</span>{ianaDesc && !compactMode && <span className="text-[8px] text-[#0b282c] dark:text-teal-400">{ianaDesc}</span>}</td>
                             <td className={`px-3 ${pyClass} text-slate-500 dark:text-slate-400 print:text-slate-600`}>{port.version || '-'}</td>
                             <td className={`px-3 ${pyClass} flex justify-end gap-1.5`}>
                                {cvList.length > 0 ? (
-                                  <div className="flex flex-col gap-1">{cvList.map((v, i) => <span key={i} className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800/50 text-[9px] px-1.5 py-0.5 rounded font-bold w-fit print:border-red-300">{compactMode ? '⚠️' : v}</span>)}</div>
+                                  <div className="flex flex-col gap-1">{cvList.map((v, i) => <span key={i} className={`text-white text-[9px] px-1.5 py-0.5 rounded font-bold w-fit print:border ${v.severity === 'critical' ? 'bg-red-600 print:border-red-600' : 'bg-orange-500 print:border-orange-500'}`}>{compactMode ? '⚠️' : v.id}</span>)}</div>
                                 ) : !compactMode && <span className="text-[9px] text-slate-400 print:text-slate-500">Ok</span>}
                             </td>
                           </tr>
@@ -427,10 +456,10 @@ export function DashboardPanel() {
                           {isExpanded && hasScripts && (
                             <tr className="bg-slate-100 dark:bg-slate-900/50 print:bg-slate-50 print:break-inside-avoid">
                               <td colSpan={5} className="p-0 border-b border-slate-200 dark:border-slate-800 print:border-slate-300">
-                                <div className="p-3 m-2 bg-slate-900 rounded-lg shadow-inner overflow-x-auto custom-scrollbar print:bg-transparent print:shadow-none print:border print:border-slate-200">
+                                <div className="p-3 m-2 bg-[#0b1120] rounded-lg shadow-inner overflow-x-auto custom-scrollbar print:bg-transparent print:shadow-none print:border print:border-slate-200">
                                   {port.scripts?.map((s, idx) => (
                                     <div key={idx} className="mb-2 last:mb-0">
-                                      <span className="text-[10px] font-black uppercase text-fuchsia-400 border-b border-fuchsia-900 block mb-1 print:text-fuchsia-700 print:border-fuchsia-300">↳ {s.id}</span>
+                                      <span className="text-[10px] font-black uppercase text-teal-400 border-b border-teal-900 block mb-1 print:text-teal-700 print:border-teal-300">↳ {s.id}</span>
                                       <pre className="text-[10px] font-mono text-emerald-400 whitespace-pre-wrap leading-relaxed print:text-slate-800">{s.output}</pre>
                                     </div>
                                   ))}
@@ -451,8 +480,8 @@ export function DashboardPanel() {
         {/* IMPRESIÓN DE BÓVEDA EN PDF AUTOMÁTICA */}
         <div className="hidden print:block mt-8 print-page-break print-force-colors">
             {vaultCredentials.length > 0 && (
-              <div className="border border-emerald-300 rounded-lg overflow-hidden mb-6">
-                 <div className="bg-emerald-50 px-4 py-2 border-b border-emerald-300"><h2 className="text-[13px] font-black text-emerald-800">🔐 Bóveda de Credenciales</h2></div>
+              <div className="border border-[#0b282c] rounded-lg overflow-hidden mb-6">
+                 <div className="bg-[#0b282c]/10 px-4 py-2 border-b border-[#0b282c]"><h2 className="text-[13px] font-black text-[#0b282c]">🔐 Bóveda de Credenciales</h2></div>
                  <table className="w-full text-[11px] text-left text-black">
                     <thead className="text-[9px] uppercase bg-slate-100 border-b border-slate-300">
                       <tr><th className="px-3 py-1.5">Target</th><th className="px-3 py-1.5">Tipo</th><th className="px-3 py-1.5">Usuario</th><th className="px-3 py-1.5">Secreto</th></tr>
@@ -460,7 +489,7 @@ export function DashboardPanel() {
                     <tbody>
                       {vaultCredentials.map(c => (
                         <tr key={c.id} className="border-b border-slate-200">
-                          <td className="px-3 py-2 font-bold">{c.target}</td><td className="px-3 py-2"><span className="bg-slate-200 px-1 py-0.5 rounded">{c.type}</span></td><td className="px-3 py-2">{c.username || '-'}</td><td className="px-3 py-2 font-mono text-emerald-700 bg-emerald-50 px-1">{c.secret}</td>
+                          <td className="px-3 py-2 font-bold">{c.target}</td><td className="px-3 py-2"><span className="bg-slate-200 px-1 py-0.5 rounded">{c.type}</span></td><td className="px-3 py-2">{c.username || '-'}</td><td className="px-3 py-2 font-mono text-[#0b282c] bg-[#0b282c]/10 px-1">{c.secret}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -478,7 +507,7 @@ export function DashboardPanel() {
 
         {visibleCount < filteredData.length && (
           <div className="flex justify-center mt-3 print:hidden">
-             <button onClick={() => setVisibleCount(v => v + 50)} className="px-4 py-1.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 text-[10px] font-bold uppercase rounded shadow-sm border border-indigo-200 dark:border-slate-800/50 hover:bg-indigo-200 transition-colors">
+             <button onClick={() => setVisibleCount(v => v + 50)} className="px-4 py-1.5 bg-[#0b282c]/10 text-[#0b282c] dark:bg-[#0b282c]/50 dark:text-teal-400 text-[10px] font-bold uppercase rounded shadow-sm hover:bg-[#0b282c]/20 transition-colors">
                 Cargar más hosts ({filteredData.length - visibleCount} ocultos)
              </button>
           </div>
@@ -493,13 +522,13 @@ export function DashboardPanel() {
               <button onClick={() => setPreviewModal(null)} className="text-slate-400 hover:text-red-500 font-bold">✕ Cerrar</button>
             </div>
             <div className="flex-1 overflow-auto p-4 bg-slate-100 dark:bg-slate-950">
-              {previewModal === 'json' && <pre className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">{JSON.stringify(filteredData, null, 2)}</pre>}
+              {previewModal === 'json' && <pre className="text-[11px] font-mono text-[#0b282c] dark:text-teal-400">{JSON.stringify(filteredData, null, 2)}</pre>}
               {previewModal === 'md' && <pre className="text-[11px] font-mono text-slate-700 dark:text-slate-300">{generateMarkdown()}</pre>}
               {previewModal === 'html' && <div className="bg-white p-4 rounded shadow-sm overflow-auto h-full text-black"><div dangerouslySetInnerHTML={{ __html: generateHTML() }} /></div>}
             </div>
             <div className="p-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
               <button onClick={() => setPreviewModal(null)} className="px-4 py-1.5 rounded text-xs font-bold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-700">Cancelar</button>
-              <button onClick={() => handleSaveFile(previewModal, previewModal === 'json' ? JSON.stringify(filteredData, null, 2) : previewModal === 'md' ? generateMarkdown() : generateHTML())} className="px-4 py-1.5 bg-indigo-600 text-white rounded text-xs font-bold shadow hover:bg-indigo-500">Guardar Archivo {previewModal.toUpperCase()}</button>
+              <button onClick={() => handleSaveFile(previewModal, previewModal === 'json' ? JSON.stringify(filteredData, null, 2) : previewModal === 'md' ? generateMarkdown() : generateHTML())} className="px-4 py-1.5 bg-[#0b282c] text-white rounded text-xs font-bold shadow hover:bg-[#081e21]">Guardar Archivo {previewModal.toUpperCase()}</button>
             </div>
           </div>
         </div>

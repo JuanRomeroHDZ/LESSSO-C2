@@ -36,6 +36,7 @@ interface ScanState {
   volume: number;
   soundEnabled: boolean;
   autoSaveEnabled: boolean;
+  availableInterfaces: string[]; 
 
   toggleTheme: () => void; setTarget: (t: string) => void; setScanType: (t: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping') => void; setTiming: (t: number) => void; setDiscoveryMode: (m: string) => void; setField: (f: keyof ScanState, v: any) => void;
   toggleOSDetection: () => void; toggleServiceDetection: () => void; toggleIPv6: () => void; toggleAllPorts: () => void; toggleVerbose: () => void; setNseCategory: (c: string) => void; setNseArgs: (a: string) => void; setCommandString: (c: string) => void;
@@ -46,6 +47,7 @@ interface ScanState {
 
   checkVpnStatus: () => Promise<void>; connectVpn: () => Promise<void>; 
   disconnectVpn: () => Promise<void>;
+  fetchInterfaces: () => Promise<void>; 
   
   setVolume: (v: number) => void;
   toggleSound: () => void;
@@ -72,6 +74,7 @@ export const useScanStore = create<ScanState>()(
       volume: 50,
       soundEnabled: true,
       autoSaveEnabled: true,
+      availableInterfaces: [],
 
       toggleTheme: () => set((state) => { const nt = state.theme === 'light' ? 'dark' : 'light'; if (nt === 'dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); return { theme: nt }; }),
       toggleZenMode: () => set((s) => ({ zenMode: !s.zenMode })),
@@ -90,6 +93,13 @@ export const useScanStore = create<ScanState>()(
           const ip = await invoke<string>('check_vpn');
           set({ vpnIp: ip });
         } catch { set({ vpnIp: null }); }
+      },
+
+      fetchInterfaces: async () => {
+        try {
+          const ifaces = await invoke<string[]>('get_network_interfaces');
+          set({ availableInterfaces: ifaces });
+        } catch { set({ availableInterfaces: [] }); }
       },
 
       connectVpn: async () => {
@@ -144,7 +154,9 @@ export const useScanStore = create<ScanState>()(
         }
         if (s.isVerbose) cmd.push('-v'); if (s.target) cmd.push(s.target);
         
-        const finalCommand = s.useRustScan ? `rustscan -a ${s.target || '<IP>'} -b 4500 -- ${cmd.join(' ').replace(` ${s.target}`, '')}` : cmd.join(' ');
+        // CORRECCIÓN SINTAXIS APLICADA AQUÍ: Se cambió \vert{}\vert{} por ||
+        const cleanNmapArgs = cmd.join(' ').replace('nmap ', '').replace(s.target, '').trim();
+        const finalCommand = s.useRustScan ? `rustscan -a ${s.target || '<IP>'} -b 4500 --accessible -- ${cleanNmapArgs}` : cmd.join(' ');
         set({ commandString: finalCommand });
       },
 
@@ -226,7 +238,15 @@ export const useScanStore = create<ScanState>()(
       importWorkspace: (data) => set({ parsedData: data, historyData: [] }),
 
       getNmapArgs: () => {
-        let args = get().commandString.replace('rustscan -a '+get().target+' -b 4500 -- ', '').trim().split(/\s+(?=(?:[^'"]*['"][^'"]*['"])*[^'"]*$)/).map(s => s.replace(/(^["']|["']$)/g, '')).filter((p, i) => !(i === 0 && p === 'nmap'));
+        const baseString = get().commandString.includes('rustscan') 
+            ? get().commandString.replace(/rustscan -a \S+ -b \d+ --accessible -- /, '') 
+            : get().commandString.replace('nmap ', '');
+            
+        let args = baseString.replace(get().target, '').trim()
+            .split(/\s+(?=(?:[^'"]*['"][^'"]*['"])*[^'"]*$)/)
+            .map(s => s.replace(/(^["']|["']$)/g, ''))
+            .filter(p => p !== '');
+
         if (!args.includes('--privileged')) args.unshift('--privileged');
         if (!args.includes('--stats-every=5s')) args.push('--stats-every=5s');  
         return args;
