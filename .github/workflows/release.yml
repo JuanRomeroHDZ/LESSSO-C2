@@ -1,0 +1,82 @@
+name: Release LESSSO C2
+
+# Este workflow se activará cada vez que hagas push a la rama 'main'
+# (Puedes cambiarlo para que se active solo cuando crees un "tag" de versión)
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Aquí definimos los 3 sistemas operativos que GitHub nos prestará
+        include:
+          - platform: 'macos-latest' 
+            args: '--target aarch64-apple-darwin' # Para Macs modernas (M1/M2/M3)
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin' # Para Macs Intel
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Instalar Node.js
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      # Instalar Rust
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Para que compile bien en Mac M1 si el servidor es Intel
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      # Caché de Rust para que compile más rápido las siguientes veces
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './frontend/src-tauri -> target'
+
+      # Dependencias necesarias para compilar en Linux (Ubuntu)
+      - name: Install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # Dependencia necesaria para compilar el instalador en Windows
+      - name: Install dependencies (windows only)
+        if: matrix.platform == 'windows-latest'
+        run: |
+          choco install nsis -y
+
+      # Instalar dependencias de React
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      # Construir la app y crear el Release en GitHub
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: './frontend' # Le decimos que nuestro proyecto está en esta carpeta
+          tagName: app-v__VERSION__ # Toma la versión de tu tauri.conf.json
+          releaseName: 'LESSSO C2 v__VERSION__'
+          releaseBody: 'Nueva versión de LESSSO C2 lista para descargar.'
+          releaseDraft: true # Lo crea como "Borrador" para que lo revises antes de publicarlo
+          prerelease: false
+          args: ${{ matrix.args }}
