@@ -1,0 +1,7 @@
+# Nmap 7.95 scan initiated Mon Sep 28 01:56:35 2026 as: nmap --privileged -sT -Pn -n -v -p 22,80,110,139,143,445 -sV -sC -oA Enumeracion --min-rate=1000 --stats-every=5s -oX /tmp/juanmap_1790585795914.xml 10.129.217.194 localhost
+# Ports scanned: TCP(6;22,80,110,139,143,445) UDP(0;) SCTP(0;) PROTOCOLS(0;)
+Host: 10.129.217.194 ()	Status: Up
+Host: 10.129.217.194 ()	Ports: 22/filtered/tcp//ssh///, 80/filtered/tcp//http///, 110/filtered/tcp//pop3///, 139/filtered/tcp//netbios-ssn///, 143/filtered/tcp//imap///, 445/filtered/tcp//microsoft-ds///
+Host: 127.0.0.1 ()	Status: Up
+Host: 127.0.0.1 ()	Ports: 22/open/tcp//ssh//OpenSSH 10.0p2 Debian 7+deb13u4 (protocol 2.0)/, 80/open/tcp//http//OpenResty web app server/, 110/closed/tcp//pop3///, 139/closed/tcp//netbios-ssn///, 143/closed/tcp//imap///, 445/closed/tcp//microsoft-ds///
+# Nmap done at Mon Sep 28 01:56:43 2026 -- 2 IP addresses (2 hosts up) scanned in 7.89 seconds

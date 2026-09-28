@@ -1,0 +1,27 @@
+# Nmap 7.95 scan initiated Mon Sep 28 00:30:56 2026 as: nmap --privileged -sS -T5 -F -oN localhost -v --stats-every=3s -oX /tmp/juanmap_1790580656072.xml localhost localhost
+Nmap scan report for localhost (127.0.0.1)
+Host is up (0.0000070s latency).
+Other addresses for localhost (not scanned): ::1
+Not shown: 94 closed tcp ports (reset)
+PORT     STATE SERVICE
+22/tcp   open  ssh
+80/tcp   open  http
+81/tcp   open  hosts2-ns
+443/tcp  open  https
+631/tcp  open  ipp
+8000/tcp open  http-alt
+
+Nmap scan report for localhost (127.0.0.1)
+Host is up (0.0000050s latency).
+Other addresses for localhost (not scanned): ::1
+Not shown: 94 closed tcp ports (reset)
+PORT     STATE SERVICE
+22/tcp   open  ssh
+80/tcp   open  http
+81/tcp   open  hosts2-ns
+443/tcp  open  https
+631/tcp  open  ipp
+8000/tcp open  http-alt
+
+Read data files from: /usr/bin/../share/nmap
+# Nmap done at Mon Sep 28 00:30:56 2026 -- 2 IP addresses (2 hosts up) scanned in 0.18 seconds

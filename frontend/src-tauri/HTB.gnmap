@@ -1,0 +1,5 @@
+# Nmap 7.95 scan initiated Sun Sep 27 23:59:10 2026 as: nmap --privileged -sT -p- -v --min-rate=5000 -oA HTB --stats-every=3s -oX /tmp/juanmap_1790578750707.xml 10.129.2.49 10.
+# Ports scanned: TCP(65535;1-65535) UDP(0;) SCTP(0;) PROTOCOLS(0;)
+Host: 10.129.2.49 ()	Status: Up
+Host: 10.129.2.49 ()	Ports: 22/open/tcp//ssh///, 80/open/tcp//http///, 110/open/tcp//pop3///, 139/open/tcp//netbios-ssn///, 143/open/tcp//imap///, 445/open/tcp//microsoft-ds///, 31337/open/tcp//Elite///
+# Nmap done at Mon Sep 28 00:00:25 2026 -- 1 IP address (1 host up) scanned in 74.91 seconds
