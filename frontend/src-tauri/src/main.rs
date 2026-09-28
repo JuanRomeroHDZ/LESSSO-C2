@@ -59,9 +59,10 @@ async fn connect_vpn(ovpn_path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn disconnect_vpn() -> Result<(), String> {
-    let mut child = Command::new("sh")
+    // Solución multiplataforma: Invocar el intérprete y luego los binarios absolutos.
+    let mut child = Command::new("/bin/sh")
         .arg("-c")
-        .arg("pkexec killall openvpn || pkexec pkill openvpn")
+        .arg("/usr/bin/pkexec /usr/bin/killall openvpn || /usr/bin/pkexec /usr/bin/pkill openvpn")
         .spawn()
         .map_err(|e| format!("Error cerrando VPN: {}", e))?;
     
@@ -271,7 +272,6 @@ async fn run_nmap(app: AppHandle, state: State<'_, ScanProcess>, target: String,
     }
 }
 
-// NUEVO: COMANDO PARA RUSTSCAN
 #[tauri::command]
 async fn run_rustscan(app: AppHandle, state: State<'_, ScanProcess>, target: String, nmap_args: Vec<String>) -> Result<(), String> {
     if target.is_empty() { return Err("Objetivo vacío".into()); }
@@ -281,9 +281,7 @@ async fn run_rustscan(app: AppHandle, state: State<'_, ScanProcess>, target: Str
     let xml_path_str = xml_path.to_str().unwrap();
 
     let mut cmd = Command::new("rustscan");
-    // Parámetros propios de RustScan (-a IP -b 4500 --)
     cmd.arg("-a").arg(&target).arg("-b").arg("4500").arg("--");
-    // Pasamos los argumentos de Nmap extraídos del Frontend, y forzamos la salida XML
     cmd.args(nmap_args).arg("-oX").arg(xml_path_str).stdout(Stdio::piped()).stderr(Stdio::piped());
     
     let mut child = cmd.spawn().map_err(|e| format!("Error RustScan: Asegúrate de tener rustscan instalado.\n{}", e))?;
@@ -334,7 +332,6 @@ fn main() {
         .plugin(tauri_plugin_fs::init())     
         .manage(ScanProcess(AtomicU32::new(0)))
         .manage(TerminalState { stdins: Mutex::new(HashMap::new()) })
-        // Añadido run_rustscan al handler
         .invoke_handler(tauri::generate_handler![run_nmap, run_rustscan, cancel_nmap, check_vpn, connect_vpn, disconnect_vpn, start_terminal, write_terminal, kill_terminal])
         .run(tauri::generate_context!())
         .expect("Error Tauri");

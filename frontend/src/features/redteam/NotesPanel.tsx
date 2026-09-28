@@ -1,45 +1,35 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import MDEditor from '@uiw/react-md-editor';
 import { useScanStore } from '../../core/store/useScanStore';
 
 export function NotesPanel() {
-  const [notes, setNotes] = useState('');
-  const [saveStatus, setSaveStatus] = useState('Autoguardado activado');
-  const theme = useScanStore(state => state.theme);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('juanmap_notes');
-    if (saved) setNotes(saved);
-
-    const handleStorageChange = () => {
-      const updated = localStorage.getItem('juanmap_notes');
-      if (updated !== null && updated !== notes) setNotes(updated);
-    };
-    window.addEventListener('juanmap_notes_updated', handleStorageChange);
-    return () => window.removeEventListener('juanmap_notes_updated', handleStorageChange);
-  }, []);
+  const { theme, redTeamNotes, setRedTeamNotes, autoSaveEnabled } = useScanStore();
+  const [saveStatus, setSaveStatus] = useState(autoSaveEnabled ? 'Autoguardado activado' : 'Autoguardado pausado');
 
   const handleChange = (val?: string) => {
     const value = val || '';
-    setNotes(value);
+    setRedTeamNotes(value);
     setSaveStatus('Guardando...');
-    localStorage.setItem('juanmap_notes', value);
-    window.dispatchEvent(new Event('juanmap_notes_updated'));
-    setTimeout(() => setSaveStatus('Guardado localmente'), 1000);
+    setTimeout(() => setSaveStatus(autoSaveEnabled ? 'Guardado en disco' : 'Solo guardado en sesión local'), 800);
   };
+
+  const insertTemplate = () => {
+    const template = `\n## 🔴 Título de la Vulnerabilidad\n**Severidad:** ALTA | **CVSS:** 8.5\n\n### Descripción\nExplica brevemente la vulnerabilidad...\n\n### Prueba de Concepto (PoC)\n\`\`\`bash\n# Pega tu código, comando o script aquí\n\`\`\`\n\n### Impacto\n¿Qué puede hacer el atacante con esto?\n\n### Remediación\n¿Cómo parcharlo?\n---\n`;
+    setRedTeamNotes(redTeamNotes + template);
+  }
 
   const downloadNotes = async () => {
     try {
       setSaveStatus('Abriendo explorador...');
       const filePath = await save({ 
         title: 'Exportar Bitácora Markdown', 
-        defaultPath: `Bitacora_Auditoria_${Date.now()}.md`, 
+        defaultPath: `LESSSO_Bitacora_${Date.now()}.md`, 
         filters: [{ name: 'Markdown Document', extensions: ['md'] }] 
       });
       if (filePath) { 
-        await writeTextFile(filePath, notes); 
+        await writeTextFile(filePath, redTeamNotes); 
         setSaveStatus('Exportado exitosamente'); 
         alert(`Archivo guardado correctamente en:\n${filePath}`); 
       } else { 
@@ -52,29 +42,30 @@ export function NotesPanel() {
   };
 
   return (
-    <div className="flex flex-col h-full min-h-[600px] flex-1 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden" data-color-mode={theme}>
+    <div className="flex flex-col h-full min-h-[600px] flex-1 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden" data-color-mode={theme}>
       
       {/* HEADER */}
-      <div className="flex justify-between items-center px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 shrink-0">
-        <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase flex items-center">
-          <svg className="w-4 h-4 mr-2 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-          Bitácora Enriquecida
+      <div className="flex justify-between items-center px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shrink-0">
+        <h2 className="text-xs font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-widest flex items-center">
+          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+          Bitácora de Auditoría
         </h2>
-        <div className="flex items-center space-x-4">
-          <span className="text-[10px] font-medium text-slate-400">{saveStatus}</span>
-          <button onClick={downloadNotes} className="px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded shadow hover:bg-indigo-500 transition-colors">Guardar Como (.MD)</button>
+        <div className="flex items-center space-x-3">
+          <span className={`text-[9px] font-bold uppercase tracking-wider ${autoSaveEnabled ? 'text-slate-400' : 'text-orange-500 animate-pulse'}`}>{saveStatus}</span>
+          <button onClick={insertTemplate} className="px-3 py-1.5 bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 text-[10px] font-bold uppercase rounded hover:bg-fuchsia-200 transition-colors" title="Inserta una plantilla estándar para reportar un CVE">+ Plantilla CPTS</button>
+          <button onClick={downloadNotes} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded shadow-lg shadow-indigo-500/20 hover:bg-indigo-500 transition-colors">Exportar .MD</button>
         </div>
       </div>
 
-      {/* EDITOR ROBUSTO */}
-      <div className="flex-1 min-h-0 bg-white dark:bg-slate-900" data-color-mode={theme}>
+      {/* EDITOR */}
+      <div className="flex-1 min-h-0 bg-white dark:bg-slate-950 custom-scrollbar" data-color-mode={theme}>
         <MDEditor
-          value={notes}
+          value={redTeamNotes}
           onChange={handleChange}
           height="100%"
           preview="live"
           hideToolbar={false}
-          className="h-full w-full border-none !shadow-none"
+          className="h-full w-full border-none !shadow-none font-mono"
         />
       </div>
     </div>

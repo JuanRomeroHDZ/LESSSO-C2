@@ -39,7 +39,7 @@ const ColorizeLine = ({ line }: { line: string }) => {
 }
 
 export function TerminalPanel() {
-  const { output, appendOutput, setIsScanning, commandString, setCommandString, progressText, setProgressText, isScanning, clearOutput } = useScanStore()
+  const { output, appendOutput, setIsScanning, commandString, progressText, setProgressText, isScanning, clearOutput } = useScanStore()
   const terminalEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
@@ -96,16 +96,23 @@ export function TerminalPanel() {
   return (
     <section className="flex flex-col h-full min-h-0 bg-[#0b1120] relative">
         <div className="bg-slate-900 px-4 py-1.5 flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-700 shrink-0 gap-3">
-          <div className="flex items-center space-x-3 w-full sm:w-auto">
-            <span className="text-[10px] text-slate-300 font-mono flex items-center space-x-2">
+          <div className="flex items-center space-x-3 w-full sm:w-auto overflow-hidden">
+            <span className="text-[10px] text-slate-300 font-mono flex items-center space-x-2 shrink-0">
               <span className={`h-2 w-2 rounded-full ${isScanning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`}></span>
               <span className="font-bold tracking-wider">LESSSO TERMINAL</span>
             </span>
-            <input type="text" value={searchGrep} onChange={(e) => setSearchGrep(e.target.value)} placeholder="Grep: filtrar texto..." className="bg-slate-950 border border-slate-700 text-emerald-400 text-[10px] px-2 py-1 rounded w-40 focus:ring-1 focus:ring-indigo-500 outline-none font-mono" />
-            {isScanning && progressText && <span className="text-[10px] text-indigo-300 font-bold bg-indigo-900/40 px-2 py-0.5 rounded border border-indigo-500/30">{progressText}</span>}
+            <div className="w-px h-4 bg-slate-700 mx-1 shrink-0"></div>
+            
+            {/* NUEVO CLI PREVIEW INTERACTIVO */}
+            <span className="text-[10px] font-mono text-emerald-400 bg-black/30 px-2 py-0.5 rounded border border-slate-700 truncate max-w-md hidden md:block" title="Comando actual de Nmap generado por tus opciones">
+              $ {commandString}
+            </span>
+
+            <input type="text" value={searchGrep} onChange={(e) => setSearchGrep(e.target.value)} placeholder="Grep: filtrar..." className="bg-slate-950 border border-slate-700 text-emerald-400 text-[10px] px-2 py-1 rounded w-32 focus:ring-1 focus:ring-indigo-500 outline-none font-mono shrink-0" />
+            {isScanning && progressText && <span className="text-[10px] text-indigo-300 font-bold bg-indigo-900/40 px-2 py-0.5 rounded border border-indigo-500/30 shrink-0">{progressText}</span>}
           </div>
           
-          <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
+          <div className="flex items-center space-x-3 w-full sm:w-auto justify-end shrink-0">
             <button onClick={copyCommand} className="text-[10px] text-slate-400 hover:text-white transition-colors uppercase font-bold">{copied ? 'Copiado!' : 'Copiar CLI'}</button>
             <button onClick={exportRawLog} disabled={output.length === 0} className="text-[10px] text-slate-400 hover:text-white transition-colors disabled:opacity-30 uppercase font-bold">Exportar Log</button>
             <button onClick={clearOutput} disabled={isScanning} className="text-[10px] text-slate-400 hover:text-white transition-colors disabled:opacity-30 uppercase font-bold">Limpiar</button>

@@ -40,8 +40,11 @@ export function DashboardPanel() {
   const { parsedData, historyData, isScanning, target, commandString, theme, scanDuration, clearHistory, compactMode, toggleCompactMode, importWorkspace, vaultCredentials, redTeamNotes } = useScanStore()
   const [search, setSearch] = useState('')
   const [showDiff, setShowDiff] = useState(false)
+  
+  // Filtros Avanzados (Pills)
   const [filterUp, setFilterUp] = useState(false)  
   const [filterVuln, setFilterVuln] = useState(false) 
+  const [filterWeb, setFilterWeb] = useState(false) 
   
   const [visibleCount, setVisibleCount] = useState(20)
   const [expandedPorts, setExpandedPorts] = useState<Record<string, boolean>>({})
@@ -51,6 +54,8 @@ export function DashboardPanel() {
   const filteredData = (parsedData || []).filter(host => {
     if (filterUp && host.status !== 'up') return false;
     if (filterVuln) { const isVuln = (host.ports || []).some(p => detectCVEs(p.service, p.version).length > 0); if (!isVuln) return false; }
+    if (filterWeb) { const hasWeb = (host.ports || []).some(p => ['80', '443', '8080', '8443'].includes(p.portid) && p.state === 'open'); if (!hasWeb) return false; }
+    
     if (!search) return true; const q = search.toLowerCase();
     if (q.includes('port:')) return (host.ports || []).some(p => p.portid === q.match(/port:(\d+)/)?.[1]);
     return host.ip.includes(q) || (host.hostname && host.hostname.toLowerCase().includes(q)) || (host.alias && host.alias.toLowerCase().includes(q)) || (host.ports || []).some(p => (p.service || '').toLowerCase().includes(q));
@@ -310,23 +315,26 @@ export function DashboardPanel() {
         <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center"><span className="text-[9px] font-bold text-slate-500 uppercase">Top Servicios</span><div className="h-20 w-full mt-1"><ResponsiveContainer width="100%" height="100%"><BarChart data={topServicesData}><XAxis dataKey="name" hide /><RechartsTooltip cursor={{fill: 'transparent'}} contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} /><Bar dataKey="count" fill="#8b5cf6" radius={[4,4,0,0]} /></BarChart></ResponsiveContainer></div></div>
 
         <div className="flex flex-col gap-1 justify-center p-3 rounded-lg border border-slate-200 dark:border-slate-700 overflow-y-auto custom-scrollbar">
-          <button onClick={() => setPreviewModal('json')} className="w-full text-[9px] font-bold uppercase bg-slate-800 dark:bg-slate-700 text-white py-1.5 rounded hover:bg-slate-700 shadow-sm">Ver / Exportar JSON</button>
+          <button onClick={() => setPreviewModal('json')} className="w-full text-[9px] font-bold uppercase bg-slate-800 dark:bg-slate-700 text-white py-1.5 rounded hover:bg-slate-700 shadow-sm transition-colors">Ver / Exportar JSON</button>
           <div className="flex gap-1 w-full">
-             <button onClick={() => setPreviewModal('md')} className="flex-1 text-[9px] font-bold uppercase bg-fuchsia-600 text-white py-1.5 rounded hover:bg-fuchsia-500 shadow-sm">Ver MD</button>
-             <button onClick={() => setPreviewModal('html')} className="flex-1 text-[9px] font-bold uppercase bg-orange-600 text-white py-1.5 rounded hover:bg-orange-500 shadow-sm">Ver HTML</button>
+             <button onClick={() => setPreviewModal('md')} className="flex-1 text-[9px] font-bold uppercase bg-fuchsia-600 text-white py-1.5 rounded hover:bg-fuchsia-500 shadow-sm transition-colors">Ver MD</button>
+             <button onClick={() => setPreviewModal('html')} className="flex-1 text-[9px] font-bold uppercase bg-orange-600 text-white py-1.5 rounded hover:bg-orange-500 shadow-sm transition-colors">Ver HTML</button>
           </div>
-          <button onClick={handlePrint} className="w-full text-[9px] font-bold uppercase border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 py-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 shadow-sm">Imprimir PDF</button>
-          <button onClick={clearHistory} className="w-full text-[9px] font-bold uppercase border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 py-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm">Borrar Memoria</button>
+          <button onClick={handlePrint} className="w-full text-[9px] font-bold uppercase border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 py-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 shadow-sm transition-colors">Imprimir PDF</button>
+          <button onClick={clearHistory} className="w-full text-[9px] font-bold uppercase border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 py-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm transition-colors">Borrar Memoria</button>
         </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 shrink-0 print:hidden justify-between items-center bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
         <input type="text" value={search} onChange={(e) => {setSearch(e.target.value); setVisibleCount(20);}} placeholder="Buscar IP, puerto:22, os:linux..." className="flex-1 px-3 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-[11px] outline-none dark:text-white" />
+        
+        {/* Píldoras de Filtro Rápido (Activos, Web, CVEs) */}
         <div className="flex gap-1.5">
-          <button onClick={toggleCompactMode} className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${compactMode ? 'bg-indigo-100 border-indigo-300 text-indigo-700 dark:bg-indigo-900/50 dark:border-indigo-500/50 dark:text-indigo-300' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500'}`}>Compacto</button>
-          <button onClick={() => {setFilterUp(!filterUp); setVisibleCount(20);}} className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${filterUp ? 'bg-indigo-100 border-indigo-300 text-indigo-700 dark:bg-indigo-900/50 dark:border-indigo-500/50 dark:text-indigo-300' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500'}`}>Solo Activos</button>
-          <button onClick={() => {setFilterVuln(!filterVuln); setVisibleCount(20);}} className={`px-2 py-1 rounded text-[10px] font-bold uppercase border ${filterVuln ? 'bg-red-100 border-red-300 text-red-700 dark:bg-red-900/50 dark:border-red-500/50 dark:text-red-400' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500'}`}>Solo CVEs</button>
-          <label className={`flex items-center space-x-1.5 cursor-pointer px-2 py-1 rounded border transition-colors ${historyData.length > 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200' : 'opacity-50 border-slate-200'}`}><input type="checkbox" checked={showDiff} disabled={historyData.length === 0} onChange={() => setShowDiff(!showDiff)} className="rounded w-3 h-3" /><span className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400">Diff</span></label>
+          <button onClick={() => {setFilterUp(!filterUp); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterUp ? 'bg-indigo-100 border-indigo-300 text-indigo-700 dark:bg-indigo-900/50 dark:border-indigo-500/50 dark:text-indigo-300 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🟢 Activos</button>
+          <button onClick={() => {setFilterWeb(!filterWeb); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterWeb ? 'bg-sky-100 border-sky-300 text-sky-700 dark:bg-sky-900/50 dark:border-sky-500/50 dark:text-sky-300 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🌐 Web</button>
+          <button onClick={() => {setFilterVuln(!filterVuln); setVisibleCount(20);}} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterVuln ? 'bg-red-100 border-red-300 text-red-700 dark:bg-red-900/50 dark:border-red-500/50 dark:text-red-400 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🚨 CVEs</button>
+          <button onClick={toggleCompactMode} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${compactMode ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>≡ Comp</button>
+          <label className={`flex items-center space-x-1.5 cursor-pointer px-3 py-1 rounded-full border transition-colors ${historyData.length > 0 ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 hover:bg-emerald-100' : 'opacity-50 border-slate-200'}`}><input type="checkbox" checked={showDiff} disabled={historyData.length === 0} onChange={() => setShowDiff(!showDiff)} className="rounded w-3 h-3 accent-emerald-500" /><span className="text-[10px] font-bold uppercase text-emerald-700 dark:text-emerald-400">Diff</span></label>
         </div>
       </div>
 
@@ -470,7 +478,7 @@ export function DashboardPanel() {
 
         {visibleCount < filteredData.length && (
           <div className="flex justify-center mt-3 print:hidden">
-             <button onClick={() => setVisibleCount(v => v + 50)} className="px-4 py-1.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 text-[10px] font-bold uppercase rounded shadow-sm border border-indigo-200 dark:border-indigo-800/50 hover:bg-indigo-200 transition-colors">
+             <button onClick={() => setVisibleCount(v => v + 50)} className="px-4 py-1.5 bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 text-[10px] font-bold uppercase rounded shadow-sm border border-indigo-200 dark:border-slate-800/50 hover:bg-indigo-200 transition-colors">
                 Cargar más hosts ({filteredData.length - visibleCount} ocultos)
              </button>
           </div>

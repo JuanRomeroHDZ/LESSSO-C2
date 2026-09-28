@@ -27,13 +27,15 @@ interface ScanState {
   nmapOutputFormat: string; nmapOutputPrefix: string; nmapOutputDir: string;
   vaultCredentials: VaultCred[];
 
-  // NUEVO: Estado de Notas para la Bitácora
   redTeamNotes: string;
   setRedTeamNotes: (notes: string) => void;
+  redTeamWhiteboard: any;
+  setRedTeamWhiteboard: (data: any) => void;
 
   vpnIp: string | null; ovpnPath: string; useRustScan: boolean;
   volume: number;
   soundEnabled: boolean;
+  autoSaveEnabled: boolean;
 
   toggleTheme: () => void; setTarget: (t: string) => void; setScanType: (t: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping') => void; setTiming: (t: number) => void; setDiscoveryMode: (m: string) => void; setField: (f: keyof ScanState, v: any) => void;
   toggleOSDetection: () => void; toggleServiceDetection: () => void; toggleIPv6: () => void; toggleAllPorts: () => void; toggleVerbose: () => void; setNseCategory: (c: string) => void; setNseArgs: (a: string) => void; setCommandString: (c: string) => void;
@@ -47,25 +49,29 @@ interface ScanState {
   
   setVolume: (v: number) => void;
   toggleSound: () => void;
+  toggleAutoSave: () => void;
 
   syncCommandString: () => void; setIsScanning: (s: boolean) => void; appendOutput: (l: string) => void; clearOutput: () => void; clearHistory: () => void; setParsedData: (d: HostInfo[]) => void; updateHost: (ip: string, u: Partial<HostInfo>) => void; setProgressText: (t: string) => void; setScanDuration: (d: string) => void; getNmapArgs: () => string[]; cancelScan: () => Promise<void>; notifyCompletion: () => Promise<void>; playAudioAlert: () => void; importWorkspace: (data: HostInfo[]) => void; toggleZenMode: () => void; toggleCompactMode: () => void; toggleQuickNotes: () => void; copyMasterConfig: () => void;  
   syncWithBackend: (target: string, scanDuration: string, data: HostInfo[]) => Promise<void>;
 }
 
-// CORRECCIÓN: Envolvemos todo el Store en 'persist' para AUTO-GUARDADO (Prevención de Desastres)
 export const useScanStore = create<ScanState>()(
   persist(
     (set, get) => ({
       theme: 'light', target: '', scanType: 'syn', timing: 4, excludeTargets: '', topPorts: '', customPorts: '', fastMode: false, discoveryMode: '', minRate: '', maxRetries: '', networkInterface: '', aggressiveMode: false, traceroute: false, reason: false, packetTrace: false, minParallelism: '', maxParallelism: '', dnsResolution: '', hostTimeout: '', scanDelay: '', useOSDetection: false, maxOsTries: '', useServiceDetection: false, versionIntensity: '', useIPv6: false, scanAllPorts: false, nseCategory: '', nseArgs: '', isVerbose: false, evasionFrag: false, evasionMTU: '', evasionDecoy: '', evasionMac: '', evasionSourcePort: '', evasionSpoofIp: '', badsum: false, randomizeHosts: false, zombieIp: '', ftpBounce: '', customTcpFlags: '', proxies: '', customDns: '', dataString: '', dataHex: '', dataLength: '',
       commandString: 'nmap -sS -T4', isScanning: false, output: [], parsedData: [], historyData: [], progressText: '', scanDuration: '0s', savedProfiles: [], autoScanInterval: 0, zenMode: false, compactMode: false, quickNotesOpen: false,
-      onlyOpenPorts: false, osScanGuess: false, scriptDefault: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'juanmap_scan', nmapOutputDir: '',
+      onlyOpenPorts: false, osScanGuess: false, scriptDefault: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'lessso_scan', nmapOutputDir: '',
       vaultCredentials: [],
+      
       redTeamNotes: '',
       setRedTeamNotes: (notes: string) => set({ redTeamNotes: notes }),
+      redTeamWhiteboard: null,
+      setRedTeamWhiteboard: (data: any) => set({ redTeamWhiteboard: data }),
       
       vpnIp: null, ovpnPath: '', useRustScan: false,
-      volume: 0.5,
+      volume: 50,
       soundEnabled: true,
+      autoSaveEnabled: true,
 
       toggleTheme: () => set((state) => { const nt = state.theme === 'light' ? 'dark' : 'light'; if (nt === 'dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); return { theme: nt }; }),
       toggleZenMode: () => set((s) => ({ zenMode: !s.zenMode })),
@@ -74,6 +80,7 @@ export const useScanStore = create<ScanState>()(
       
       setVolume: (v) => set({ volume: v }),
       toggleSound: () => set((s) => ({ soundEnabled: !s.soundEnabled })),
+      toggleAutoSave: () => set((s) => ({ autoSaveEnabled: !s.autoSaveEnabled })),
 
       addVaultCred: (cred) => set((s) => ({ vaultCredentials: [...s.vaultCredentials, { ...cred, id: Date.now().toString() }] })),
       removeVaultCred: (id) => set((s) => ({ vaultCredentials: s.vaultCredentials.filter(c => c.id !== id) })),
@@ -102,6 +109,7 @@ export const useScanStore = create<ScanState>()(
         try {
           await invoke('disconnect_vpn');
           set({ vpnIp: null });
+          setTimeout(() => set({ vpnIp: null }), 2500);
         } catch (e: any) { 
           console.error(e); 
           alert(`No se pudo desconectar la VPN.\nDetalle: ${e}`);
@@ -145,13 +153,13 @@ export const useScanStore = create<ScanState>()(
       setTiming: (t) => { set({ timing: t }); get().syncCommandString(); }, setDiscoveryMode: (m) => { set({ discoveryMode: m }); get().syncCommandString(); }, setField: (f, v) => { set({ [f]: v } as any); get().syncCommandString(); }, toggleOSDetection: () => { set((s) => ({ useOSDetection: !s.useOSDetection })); get().syncCommandString(); }, toggleServiceDetection: () => { set((s) => ({ useServiceDetection: !s.useServiceDetection })); get().syncCommandString(); }, toggleIPv6: () => { set((s) => ({ useIPv6: !s.useIPv6 })); get().syncCommandString(); }, toggleAllPorts: () => { set((s) => ({ scanAllPorts: !s.scanAllPorts, fastMode: false, topPorts: '', customPorts: '' })); get().syncCommandString(); }, toggleVerbose: () => { set((s) => ({ isVerbose: !s.isVerbose })); get().syncCommandString(); }, setNseCategory: (c) => { set({ nseCategory: c }); get().syncCommandString(); }, setNseArgs: (a) => { set({ nseArgs: a }); get().syncCommandString(); }, setCommandString: (c) => set({ commandString: c }),
       
       applyProfile: (p) => {
-        set({ useOSDetection: false, useServiceDetection: false, scanAllPorts: false, fastMode: false, topPorts: '', customPorts: '', nseCategory: '', evasionFrag: false, evasionDecoy: '', minRate: '', maxRetries: '', aggressiveMode: false, packetTrace: false, badsum: false, zombieIp: '', ftpBounce: '', hostTimeout: '', scanDelay: '', customTcpFlags: '', dataLength: '', proxies: '', onlyOpenPorts: false, scriptDefault: false, osScanGuess: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'juanmap_scan', nmapOutputDir: '' });
+        set({ useOSDetection: false, useServiceDetection: false, scanAllPorts: false, fastMode: false, topPorts: '', customPorts: '', nseCategory: '', evasionFrag: false, evasionDecoy: '', minRate: '', maxRetries: '', aggressiveMode: false, packetTrace: false, badsum: false, zombieIp: '', ftpBounce: '', hostTimeout: '', scanDelay: '', customTcpFlags: '', dataLength: '', proxies: '', onlyOpenPorts: false, scriptDefault: false, osScanGuess: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'lessso_scan', nmapOutputDir: '' });
         switch (p) {
           case 'evasive': set({ scanType: 'syn', timing: 1, isVerbose: false, evasionFrag: true, evasionDecoy: 'ME,10.0.0.1', scanDelay: '500ms', dataLength: '25' }); break;
           case 'balanced': set({ scanType: 'syn', timing: 4, useOSDetection: true, useServiceDetection: true, scriptDefault: true }); break;
           case 'aggressive': set({ scanType: 'tcp', timing: 5, aggressiveMode: true, scanAllPorts: true, scriptDefault: true, isVerbose: true, minRate: '1000', maxRetries: '0' }); break;
           case 'discovery': set({ scanType: 'ping', timing: 4, isVerbose: true }); break;
-          case 'fast': set({ scanType: 'syn', timing: 5, fastMode: true, isVerbose: true }); break;
+          case 'fast': set({ scanType: 'syn', timing: 5, fastMode: true, isVerbose: true, topPorts: '1000' }); break;
         }
         get().syncCommandString();
       },
@@ -195,7 +203,7 @@ export const useScanStore = create<ScanState>()(
           const osc = ctx.createOscillator(); const gain = ctx.createGain();
           osc.connect(gain); gain.connect(ctx.destination);
           osc.type = 'sine'; osc.frequency.value = 880;  
-          gain.gain.setValueAtTime(vol, ctx.currentTime);
+          gain.gain.setValueAtTime(vol / 100, ctx.currentTime);
           osc.start(); osc.stop(ctx.currentTime + 0.3);
         } catch (e) {}  
       },
@@ -210,7 +218,7 @@ export const useScanStore = create<ScanState>()(
               permissionGranted = permission === 'granted';
             }
             if (permissionGranted) {
-              sendNotification({ title: 'JuanMap Desktop', body: 'Auditoría Finalizada' });
+              sendNotification({ title: 'LESSSO C2', body: 'Auditoría Finalizada' });
             }
         } catch (e) { console.error("Notificaciones no soportadas en este SO."); }
       },
@@ -225,6 +233,7 @@ export const useScanStore = create<ScanState>()(
       },
 
       syncWithBackend: async (target: string, scanDuration: string, data: HostInfo[]) => {
+        if (!get().autoSaveEnabled) return; 
         try {
           const response = await fetch('http://localhost:8001/api/scans', {
             method: 'POST',
@@ -232,22 +241,22 @@ export const useScanStore = create<ScanState>()(
             body: JSON.stringify({ target, scan_duration: scanDuration, hosts: data }),
           });
           if (response.ok) {
-            get().appendOutput('\n[SISTEMA] Datos sincronizados con JuanMap Backend Database exitosamente.');
+            get().appendOutput('\n[SISTEMA] Datos sincronizados con LESSSO Backend exitosamente.');
           }
         } catch (err) {
-          get().appendOutput('\n[SISTEMA] No se pudo sincronizar con el Backend (API Docker inactiva).');
         }
       }
     }),
     {
-      name: 'juanmap-storage',
-      partialize: (state) => ({ 
+      name: 'lessso-c2-storage',
+      partialize: (state) => state.autoSaveEnabled ? {  
         vaultCredentials: state.vaultCredentials,
         parsedData: state.parsedData,
         historyData: state.historyData,
         redTeamNotes: state.redTeamNotes,
+        redTeamWhiteboard: state.redTeamWhiteboard,
         savedProfiles: state.savedProfiles
-      }),
+      } : {},
     }
   )
 )

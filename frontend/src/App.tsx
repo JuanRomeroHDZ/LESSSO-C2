@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { ScanConfig } from './features/scanner/ScanConfig'
@@ -17,6 +17,9 @@ function VaultWorkspace() {
   const [secret, setSecret] = useState('');
   const [type, setType] = useState<'hash' | 'password' | 'key'>('password');
   const [notes, setNotes] = useState('');
+  
+  // NUEVO: Estado para ocultar/revelar contraseñas
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   const handleAdd = () => {
     if(target && secret) {
@@ -29,6 +32,15 @@ function VaultWorkspace() {
     const txt = vaultCredentials.map(c => `${c.target} | ${c.type.toUpperCase()} | ${c.username || 'N/A'} : ${c.secret}`).join('\n');
     navigator.clipboard.writeText(txt);
     alert('Credenciales copiadas al portapapeles.');
+  }
+
+  const toggleReveal = (id: string) => {
+    setRevealed(prev => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    alert('Copiado al portapapeles!');
   }
 
   return (
@@ -63,7 +75,13 @@ function VaultWorkspace() {
                 <td className="p-2">
                    <div className="font-bold">{c.target} <span className="text-[8px] font-normal uppercase bg-slate-200 dark:bg-slate-700 px-1 rounded ml-1">{c.type}</span></div>
                    <div className="text-slate-500">User: {c.username || '-'}</div>
-                   <div className="font-mono text-emerald-600 dark:text-emerald-400 break-all bg-emerald-50 dark:bg-emerald-900/10 p-1 mt-1 rounded">{c.secret}</div>
+                   <div className="flex items-center gap-2 mt-1">
+                     <div className="font-mono text-emerald-600 dark:text-emerald-400 break-all bg-emerald-50 dark:bg-emerald-900/10 px-1.5 py-0.5 rounded">
+                       {revealed[c.id] ? c.secret : '••••••••••••'}
+                     </div>
+                     <button onClick={() => toggleReveal(c.id)} className="text-slate-400 hover:text-indigo-500 transition-colors" title="Mostrar/Ocultar">👁️</button>
+                     <button onClick={() => copyToClipboard(c.secret)} className="text-slate-400 hover:text-indigo-500 transition-colors" title="Copiar al portapapeles">📋</button>
+                   </div>
                 </td>
                 <td className="p-2 text-center align-middle"><button onClick={() => removeVaultCred(c.id)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 p-1 rounded">✕</button></td>
               </tr>
@@ -84,10 +102,10 @@ export default function App() {
   const { 
     target, setTarget, applyProfile, useRustScan, setField, copyMasterConfig, 
     setParsedData, appendOutput, theme, toggleTheme, vpnIp, connectVpn, disconnectVpn, checkVpnStatus, volume, setVolume, soundEnabled, toggleSound,
-    isScanning, clearOutput, getNmapArgs, setScanDuration, notifyCompletion, autoScanInterval, cancelScan
+    isScanning, clearOutput, getNmapArgs, setScanDuration, notifyCompletion, cancelScan, autoSaveEnabled, toggleAutoSave
   } = useScanStore()
 
-  const scanTimeoutRef = useRef<any>(null);
+  let scanTimeoutRef: ReturnType<typeof setTimeout> | null = null;
 
   useEffect(() => {
     checkVpnStatus();
@@ -100,7 +118,6 @@ export default function App() {
       try {
         const result = JSON.parse(event.payload);
         setParsedData(result.hosts || []);
-        setActiveWorkspace('recon');
         useScanStore.getState().syncWithBackend(useScanStore.getState().target, useScanStore.getState().scanDuration, result.hosts || []);
       } catch (err) { appendOutput(`\n[SISTEMA] Error estructurando datos: ${err}`); }
     })
@@ -130,7 +147,7 @@ export default function App() {
       const freshState = useScanStore.getState();
       if (freshState.autoScanInterval > 0 && freshState.isScanning) {
         appendOutput(`\n[MONITOR] Esperando ${freshState.autoScanInterval}s para el próximo escaneo...`);
-        scanTimeoutRef.current = setTimeout(handleScan, freshState.autoScanInterval * 1000);
+        scanTimeoutRef = setTimeout(handleScan, freshState.autoScanInterval * 1000);
       } else { useScanStore.getState().setIsScanning(false); }
     } catch (error) {  
       appendOutput(`\n[ERROR DE SISTEMA]: ${error}`); useScanStore.getState().setIsScanning(false);  
@@ -138,14 +155,13 @@ export default function App() {
   }
 
   const stopEverything = () => {  
-    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);  
+    if (scanTimeoutRef) clearTimeout(scanTimeoutRef);  
     setField('autoScanInterval', 0); cancelScan();  
   }
 
   return (
     <div className={`${theme} flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-200 font-sans transition-colors duration-200 print:bg-white print:text-black`}>
       
-      {/* BARRA SUPERIOR GLOBAL (HEADER DE COMANDO) */}
       <header className="h-14 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between px-4 shrink-0 print:hidden z-30 shadow-sm">
         <div className="flex items-center gap-4">
           <h1 className="font-['Poppins'] font-black text-2xl text-indigo-600 dark:text-indigo-400 tracking-wider flex items-center gap-2">
@@ -156,7 +172,7 @@ export default function App() {
           <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700">
             <input type="text" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Objetivo (Ej: 10.10.10.1)" className="w-48 px-3 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-600 rounded focus:ring-1 focus:ring-indigo-500 text-xs font-bold dark:text-white outline-none" />
             <div className="flex gap-1">
-              <button onClick={() => applyProfile('fast')} title="Fast (-F)" className="px-2 py-1 text-[10px] font-bold uppercase bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded hover:bg-fuchsia-50 hover:text-fuchsia-600 transition-colors">Fast</button>
+              <button onClick={() => applyProfile('fast')} title="Fast (-F --top-ports 1000)" className="px-2 py-1 text-[10px] font-bold uppercase bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded hover:bg-fuchsia-50 hover:text-fuchsia-600 transition-colors">Fast</button>
               <button onClick={() => applyProfile('balanced')} title="Normal (-sC -sV)" className="px-2 py-1 text-[10px] font-bold uppercase bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded hover:bg-blue-50 hover:text-blue-600 transition-colors">Norm</button>
               <button onClick={() => applyProfile('aggressive')} title="Agresivo (-A -p-)" className="px-2 py-1 text-[10px] font-bold uppercase bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 rounded hover:bg-red-50 hover:text-red-600 transition-colors">Agr</button>
             </div>
@@ -179,10 +195,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* ÁREA CENTRAL (SIDEBAR + MAIN + TERMINAL) */}
       <div className="flex flex-1 overflow-hidden min-h-0 relative print:h-auto print:overflow-visible">
         
-        {/* SIDEBAR OPERATIVA IZQUIERDA */}
         <aside className="w-16 shrink-0 bg-slate-100 dark:bg-slate-900/50 border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-4 z-20 print:hidden gap-4">
             <button onClick={() => setActiveWorkspace('recon')} title="Reconocimiento (Nmap/Dashboard)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'recon' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📊</span></button>
             <button onClick={() => setActiveWorkspace('topo')} title="Topología de Red" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'topo' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🕸️</span></button>
@@ -190,10 +204,8 @@ export default function App() {
             <button onClick={() => setActiveWorkspace('cerebro')} title="Cerebro (Bóveda y Bitácora)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'cerebro' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧠</span></button>
         </aside>
 
-        {/* WORKSPACES DINÁMICOS */}
         <main className="flex-1 flex flex-col min-w-0 print:h-auto print:overflow-visible">
             
-            {/* 1. RECONOCIMIENTO */}
             {activeWorkspace === 'recon' && (
               <div className="flex flex-1 overflow-hidden print:block print:overflow-visible">
                 <div className="w-[320px] border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 overflow-y-auto shrink-0 print:hidden"><ScanConfig /></div>
@@ -201,10 +213,8 @@ export default function App() {
               </div>
             )}
 
-            {/* 2. TOPOLOGÍA */}
             {activeWorkspace === 'topo' && <div className="flex-1 p-4"><TopologyPanel /></div>}
 
-            {/* 3. ARSENAL (Toolbox + Bash) */}
             {activeWorkspace === 'arsenal' && (
               <div className="flex flex-1 overflow-hidden">
                 <div className="w-[320px] border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 overflow-y-auto flex flex-col shrink-0">
@@ -215,7 +225,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 4. CEREBRO (Vault + Notes) */}
             {activeWorkspace === 'cerebro' && (
               <div className="flex flex-1 overflow-hidden">
                 <div className="w-[350px] shrink-0 overflow-y-auto bg-slate-50 dark:bg-slate-950"><VaultWorkspace /></div>
@@ -231,7 +240,6 @@ export default function App() {
               </div>
             )}
 
-            {/* PANEL INFERIOR COLAPSABLE: TERMINAL DE LOGS (Solo en Recon y Topo) */}
             {(activeWorkspace === 'recon' || activeWorkspace === 'topo') && (
               <div className={`border-t border-slate-300 dark:border-slate-700 bg-[#0b1120] transition-all duration-300 shrink-0 print:hidden ${isTerminalOpen ? 'h-[30vh]' : 'h-0 hidden'}`}>
                 <TerminalPanel />
@@ -240,7 +248,6 @@ export default function App() {
         </main>
       </div>
 
-      {/* STATUS BAR INFERIOR ESTILO VS CODE */}
       <footer className="h-7 bg-indigo-700 text-white flex items-center justify-between px-3 text-[10px] font-bold shrink-0 print:hidden z-50">
         <div className="flex items-center gap-4">
            <span className="flex items-center gap-1.5" title="Sistema Operativo Nativamente Integrado"><div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div> LESSSO C2 READY</span>
@@ -252,7 +259,9 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-4">
-           <span className="flex items-center gap-1 text-indigo-200" title="Todo el estado de la app se guarda en disco local al instante.">💾 AUTO-GUARDADO ON</span>
+           <button onClick={toggleAutoSave} className="flex items-center gap-1 hover:text-indigo-200 transition-colors" title="El estado de la app se guarda en disco local al instante.">
+             {autoSaveEnabled ? '💾 AUTO-GUARDADO ON' : '⚠️ AUTO-GUARDADO OFF'}
+           </button>
            
            <div className="flex items-center gap-1.5 bg-indigo-800 px-2 py-0.5 rounded" title="Ajustar Volumen de Alertas">
               <button onClick={toggleSound} className="hover:scale-110 transition-transform">{soundEnabled ? '🔊' : '🔇'}</button>

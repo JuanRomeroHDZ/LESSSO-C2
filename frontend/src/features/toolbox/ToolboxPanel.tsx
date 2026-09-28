@@ -9,7 +9,6 @@ export function NetcatTool() {
   const [ncMode, setNcMode] = useState<'listen' | 'connect'>('listen')
   const [ncIp, setNcIp] = useState('')
   const [ncPort, setNcPort] = useState('4444')
-  const [ncUdp, setNcUdp] = useState(false)
   const [ncNoDns, setNcNoDns] = useState(true) 
   const [ncVerbose, setNcVerbose] = useState(true) 
   
@@ -82,7 +81,6 @@ export function NetcatTool() {
     let cmd = 'nc ';
     if (ncNoDns) cmd += '-n ';
     if (ncVerbose) cmd += '-v ';
-    if (ncUdp) cmd += '-u ';
     
     if (ncMode === 'listen') {
       cmd += `-l -p ${ncPort}`;
@@ -91,6 +89,13 @@ export function NetcatTool() {
     }
     
     invoke('write_terminal', { sessionId, data: cmd + '\n' }).catch(() => {});
+  }
+
+  // NUEVO: Macro de Estabilización TTY Mágica
+  const injectTtyMacro = () => {
+    if (!sessionId) return;
+    const macro = `python3 -c 'import pty;pty.spawn("/bin/bash")'\nexport TERM=xterm\nstty rows 40 columns 100\n`;
+    invoke('write_terminal', { sessionId, data: macro }).catch(() => {});
   }
 
   useEffect(() => {
@@ -116,7 +121,10 @@ export function NetcatTool() {
           
           <div className="bg-slate-800 p-2 border-b border-slate-700 flex flex-col gap-2 shrink-0">
             <div className="flex justify-between items-center">
-               <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-2 tracking-wider"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> BASH SESSION</span>
+               <div className="flex items-center gap-3">
+                 <span className="text-[10px] font-bold text-slate-300 uppercase flex items-center gap-2 tracking-wider"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> BASH SESSION</span>
+                 <button onClick={injectTtyMacro} className="bg-purple-600 hover:bg-purple-500 text-white px-2 py-0.5 rounded text-[9px] font-bold uppercase shadow-sm flex items-center gap-1 transition-colors" title="Inyectar macro Python PTY">Estabilizar TTY ✨</button>
+               </div>
                <button onClick={stopTerminal} className="text-[9px] bg-red-900/50 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1 rounded font-bold uppercase transition-colors tracking-widest">Terminar Shell</button>
             </div>
             
@@ -128,10 +136,10 @@ export function NetcatTool() {
               {ncMode === 'connect' && <input type="text" value={ncIp} onChange={e => setNcIp(e.target.value)} placeholder="IP Destino" className="w-28 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-[10px] text-white outline-none font-mono" />}
               <input type="text" value={ncPort} onChange={e => setNcPort(e.target.value)} placeholder="Puerto" className="w-20 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-[10px] font-mono text-white outline-none" />
               
-              <label className="flex items-center space-x-1.5 cursor-pointer" title="Evita consultas DNS. Obligatorio si el servidor de HTB es inestable."><input type="checkbox" checked={ncNoDns} onChange={() => setNcNoDns(!ncNoDns)} className="rounded text-indigo-500 accent-indigo-500" /><span className="text-[9px] font-bold text-slate-300">-n</span></label>
-              <label className="flex items-center space-x-1.5 cursor-pointer" title="Verbose"><input type="checkbox" checked={ncVerbose} onChange={() => setNcVerbose(!ncVerbose)} className="rounded text-indigo-500 accent-indigo-500" /><span className="text-[9px] font-bold text-slate-300">-v</span></label>
+              <label className="flex items-center space-x-1.5 cursor-pointer" title="Evita consultas DNS (-n)"><input type="checkbox" checked={ncNoDns} onChange={() => setNcNoDns(!ncNoDns)} className="rounded text-indigo-500 accent-indigo-500" /><span className="text-[9px] font-bold text-slate-300">-n</span></label>
+              <label className="flex items-center space-x-1.5 cursor-pointer" title="Verbose (-v)"><input type="checkbox" checked={ncVerbose} onChange={() => setNcVerbose(!ncVerbose)} className="rounded text-indigo-500 accent-indigo-500" /><span className="text-[9px] font-bold text-slate-300">-v</span></label>
               
-              <button onClick={injectNetcatCommand} className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1 rounded text-[9px] font-bold uppercase shadow-sm">Inyectar Netcat ↵</button>
+              <button onClick={injectNetcatCommand} className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1 rounded text-[9px] font-bold uppercase shadow-sm transition-colors">Inyectar Netcat ↵</button>
             </div>
           </div>
 
@@ -158,7 +166,7 @@ export function PayloadsTool() {
   const getGobusterCmd = () => `gobuster dir -u ${goUrl || 'http://target'} -w ${goWordlist} -t 50`;
   const getSearchsploitCmd = () => `searchsploit ${ssTerm || '<software_version>'}`;
 
-  const copyToClipboard = (cmd: string) => { navigator.clipboard.writeText(cmd); alert(`Copiado:\n${cmd}`); }
+  const copyToClipboard = (cmd: string) => { navigator.clipboard.writeText(cmd); alert(`Copiado al portapapeles!`); }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto custom-scrollbar p-3 space-y-6">
@@ -178,18 +186,23 @@ export function PayloadsTool() {
       <div className="space-y-3">
         <h3 className="text-[10px] tracking-widest font-black text-orange-600 dark:text-orange-400 uppercase border-b border-slate-200 dark:border-slate-800 pb-1">Gobuster</h3>
         <input type="text" value={goUrl} onChange={e => setGoUrl(e.target.value)} placeholder="URL: http://target.com" className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs dark:text-white outline-none" />
-        <select value={goWordlist} onChange={e => setGoWordlist(e.target.value)} className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-mono dark:text-white outline-none">
-          <option value="/usr/share/wordlists/dirb/common.txt">dirb/common.txt</option>
-          <option value="/usr/share/wordlists/dirb/big.txt">dirb/big.txt</option>
-          <option value="/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt">dirbuster/medium.txt</option>
-        </select>
-        <button onClick={() => copyToClipboard(getGobusterCmd())} className="w-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-3 py-1.5 rounded text-xs font-bold hover:bg-orange-200 border border-orange-200 dark:border-orange-800/50">Copiar Comando</button>
+        
+        {/* COMBOBOX DINÁMICO PARA WORDLISTS */}
+        <input list="wordlists-options" value={goWordlist} onChange={e => setGoWordlist(e.target.value)} placeholder="Ruta a wordlist..." className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-mono dark:text-white outline-none" />
+        <datalist id="wordlists-options">
+          <option value="/usr/share/wordlists/dirb/common.txt" />
+          <option value="/usr/share/wordlists/dirb/big.txt" />
+          <option value="/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt" />
+          <option value="C:\SecLists\Discovery\Web-Content\raft-large-directories.txt" />
+        </datalist>
+
+        <button onClick={() => copyToClipboard(getGobusterCmd())} className="w-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-3 py-1.5 rounded text-xs font-bold hover:bg-orange-200 border border-orange-200 dark:border-orange-800/50 transition-colors">Copiar Comando</button>
       </div>
 
       <div className="space-y-3">
         <h3 className="text-[10px] tracking-widest font-black text-sky-600 dark:text-sky-400 uppercase border-b border-slate-200 dark:border-slate-800 pb-1">Searchsploit</h3>
         <input type="text" value={ssTerm} onChange={e => setSsTerm(e.target.value)} placeholder="Servicio: Apache 2.4.49" className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs dark:text-white outline-none" />
-        <button onClick={() => copyToClipboard(getSearchsploitCmd())} className="w-full bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 px-3 py-1.5 rounded text-xs font-bold hover:bg-sky-200 border border-sky-200 dark:border-sky-800/50">Copiar Comando</button>
+        <button onClick={() => copyToClipboard(getSearchsploitCmd())} className="w-full bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 px-3 py-1.5 rounded text-xs font-bold hover:bg-sky-200 border border-sky-200 dark:border-sky-800/50 transition-colors">Copiar Comando</button>
       </div>
     </div>
   )
