@@ -43,14 +43,14 @@ export function TerminalPanel() {
   const terminalEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
-  const [searchGrep, setSearchGrep] = useState('') 
+  const [searchGrep, setSearchGrep] = useState('')  
   const [copied, setCopied] = useState(false)
 
   const exportRawLog = () => {
     const blob = new Blob([output.join('\n')], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `juanmap_raw_${Date.now()}.txt`; a.click();
+    a.href = url; a.download = `lessso_raw_${Date.now()}.txt`; a.click();
   }
 
   const copyCommand = () => {
@@ -94,47 +94,35 @@ export function TerminalPanel() {
   const filteredOutput = searchGrep ? output.filter(line => line.toLowerCase().includes(searchGrep.toLowerCase())) : output;
 
   return (
-    <section className="flex flex-col h-full space-y-3 min-h-0">
-      
-      <div className="bg-slate-900 rounded-lg p-3 shadow-sm border border-slate-800 shrink-0 flex items-center justify-between group">
-        <div className="flex-1 pr-4">
-          <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block mb-1">Comando Interactivo</span>
-          <input type="text" value={commandString} onChange={(e) => setCommandString(e.target.value)} disabled={isScanning} className="w-full bg-transparent text-emerald-400 font-mono text-sm outline-none border-b border-dashed border-slate-700 focus:border-emerald-400 pb-1 disabled:opacity-50" />
+    <section className="flex flex-col h-full min-h-0 bg-[#0b1120] relative">
+        <div className="bg-slate-900 px-4 py-1.5 flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-700 shrink-0 gap-3">
+          <div className="flex items-center space-x-3 w-full sm:w-auto">
+            <span className="text-[10px] text-slate-300 font-mono flex items-center space-x-2">
+              <span className={`h-2 w-2 rounded-full ${isScanning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`}></span>
+              <span className="font-bold tracking-wider">LESSSO TERMINAL</span>
+            </span>
+            <input type="text" value={searchGrep} onChange={(e) => setSearchGrep(e.target.value)} placeholder="Grep: filtrar texto..." className="bg-slate-950 border border-slate-700 text-emerald-400 text-[10px] px-2 py-1 rounded w-40 focus:ring-1 focus:ring-indigo-500 outline-none font-mono" />
+            {isScanning && progressText && <span className="text-[10px] text-indigo-300 font-bold bg-indigo-900/40 px-2 py-0.5 rounded border border-indigo-500/30">{progressText}</span>}
+          </div>
+          
+          <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
+            <button onClick={copyCommand} className="text-[10px] text-slate-400 hover:text-white transition-colors uppercase font-bold">{copied ? 'Copiado!' : 'Copiar CLI'}</button>
+            <button onClick={exportRawLog} disabled={output.length === 0} className="text-[10px] text-slate-400 hover:text-white transition-colors disabled:opacity-30 uppercase font-bold">Exportar Log</button>
+            <button onClick={clearOutput} disabled={isScanning} className="text-[10px] text-slate-400 hover:text-white transition-colors disabled:opacity-30 uppercase font-bold">Limpiar</button>
+          </div>
         </div>
-        <button onClick={copyCommand} className="bg-slate-800 text-slate-300 hover:text-white px-3 py-1.5 rounded text-xs font-bold transition-colors">
-          {copied ? '¡Copiado!' : 'Copiar CLI'}
-        </button>
-      </div>
 
-      <div className="flex-1 bg-[#0b1120] rounded-lg shadow-sm flex flex-col border border-slate-800 min-h-0 relative">
-          <div className="bg-slate-800/80 px-4 py-2 flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-700 shrink-0 gap-3">
-            <div className="flex items-center space-x-3 w-full sm:w-auto">
-              <span className="text-[11px] text-slate-300 font-mono flex items-center space-x-2">
-                <span className={`h-2 w-2 rounded-full ${isScanning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`}></span>
-                <span>{isScanning ? 'LIVE' : 'OFF'}</span>
-              </span>
-              <input type="text" value={searchGrep} onChange={(e) => setSearchGrep(e.target.value)} placeholder="Grep: filtrar texto..." className="bg-slate-900 border border-slate-700 text-slate-300 text-[11px] px-2 py-1 rounded w-40 focus:ring-1 focus:ring-indigo-500 outline-none" />
-            </div>
-            
-            <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
-              {isScanning && progressText && <span className="text-[10px] text-indigo-300 font-bold bg-indigo-900/40 px-2 py-0.5 rounded border border-indigo-500/30">{progressText}</span>}
-              <button onClick={exportRawLog} disabled={output.length === 0} className="text-[11px] text-slate-400 hover:text-white transition-colors disabled:opacity-30 uppercase font-bold">Exportar Log</button>
-              <button onClick={clearOutput} disabled={isScanning} className="text-[11px] text-slate-400 hover:text-white transition-colors disabled:opacity-30 uppercase font-bold">Limpiar</button>
-            </div>
-          </div>
+        <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap scroll-smooth relative custom-scrollbar">
+          {filteredOutput.length > 0  
+            ? filteredOutput.map((line, i) => <div key={i} className="min-h-[1.25rem]"><ColorizeLine line={line} /></div>)  
+            : <span className="text-slate-600">Terminal inactiva. Esperando comandos de LESSSO C2...</span>
+          }
+          <div ref={terminalEndRef} />
+        </div>
 
-          <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 font-mono text-[13px] leading-relaxed break-all whitespace-pre-wrap scroll-smooth relative">
-            {filteredOutput.length > 0 
-              ? filteredOutput.map((line, i) => <div key={i} className="min-h-[1.25rem]"><ColorizeLine line={line} /></div>) 
-              : <span className="text-slate-600">Terminal inactiva o sin coincidencias de filtro...</span>
-            }
-            <div ref={terminalEndRef} />
-          </div>
-
-          {!autoScroll && isScanning && !searchGrep && (
-            <button onClick={() => setAutoScroll(true)} className="absolute bottom-6 right-6 bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg opacity-90 hover:opacity-100 animate-bounce">↓ Ver nuevos logs</button>
-          )}
-      </div>
+        {!autoScroll && isScanning && !searchGrep && (
+          <button onClick={() => setAutoScroll(true)} className="absolute bottom-6 right-6 bg-indigo-600 text-white text-[10px] font-bold px-3 py-1.5 rounded-full shadow-lg opacity-90 hover:opacity-100 animate-bounce uppercase tracking-wider">↓ Ver logs recientes</button>
+        )}
     </section>
   )
 }

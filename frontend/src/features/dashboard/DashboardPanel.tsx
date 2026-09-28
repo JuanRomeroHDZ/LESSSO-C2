@@ -37,7 +37,7 @@ const calculateScore = (host: HostInfo) => {
 const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
 
 export function DashboardPanel() {
-  const { parsedData, historyData, isScanning, updateHost, target, commandString, theme, scanDuration, clearHistory, compactMode, toggleCompactMode, importWorkspace, vaultCredentials, redTeamNotes } = useScanStore()
+  const { parsedData, historyData, isScanning, target, commandString, theme, scanDuration, clearHistory, compactMode, toggleCompactMode, importWorkspace, vaultCredentials, redTeamNotes } = useScanStore()
   const [search, setSearch] = useState('')
   const [showDiff, setShowDiff] = useState(false)
   const [filterUp, setFilterUp] = useState(false)  
@@ -104,7 +104,7 @@ export function DashboardPanel() {
   }
 
   const generateMarkdown = () => {
-    let md = `# Reporte de Auditoría JuanMap\n`;
+    let md = `# LESSSO C2 Security Report\n`;
     md += `**Objetivo Escaneado:** ${target}\n`;
     md += `**Comando Ejecutado:** \`${commandString}\`\n`;
     md += `**Fecha:** ${new Date().toLocaleString()}\n`;
@@ -140,15 +140,11 @@ export function DashboardPanel() {
       md += `\n---\n`;
     });
 
-    // AÑADIDO: Bóveda de Credenciales
     if (vaultCredentials.length > 0) {
         md += `\n## 🔐 Bóveda de Credenciales\n| Target | Tipo | Usuario | Secreto |\n|---|---|---|---|\n`;
-        vaultCredentials.forEach(c => {
-            md += `| ${c.target} | ${c.type.toUpperCase()} | ${c.username || '-'} | \`${c.secret}\` |\n`;
-        });
+        vaultCredentials.forEach(c => { md += `| ${c.target} | ${c.type.toUpperCase()} | ${c.username || '-'} | \`${c.secret}\` |\n`; });
     }
 
-    // AÑADIDO: Bitácora de Notas
     if (redTeamNotes) {
         md += `\n## 📝 Bitácora de Auditoría\n\`\`\`text\n${redTeamNotes}\n\`\`\`\n`;
     }
@@ -157,12 +153,12 @@ export function DashboardPanel() {
   }
 
   const generateHTML = () => {
-    let html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>JuanMap Report</title>
+    let html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>LESSSO C2 Report</title>
     <style>
       body{font-family:system-ui,-apple-system,sans-serif;background-color:#f1f5f9;color:#0f172a;margin:0;padding:20px}
       .container{max-width:1200px;margin:0 auto;}
       .header-card{background:white;padding:25px;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1); border-top: 5px solid #4f46e5; margin-bottom: 30px;}
-      h1{color:#1e293b;margin-top:0;font-size:1.8rem;}
+      h1{color:#1e293b;margin-top:0;font-size:1.8rem; font-weight:900;}
       .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:15px;margin-top:20px;}
       .meta-item{background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;}
       .meta-label{font-size:0.75rem;text-transform:uppercase;color:#64748b;font-weight:bold;margin-bottom:4px;display:block;}
@@ -186,7 +182,7 @@ export function DashboardPanel() {
     </style></head><body><div class="container">
     
     <div class="header-card">
-      <h1>Nmap Scan Report</h1>
+      <h1>LESSSO C2 Security Report</h1>
       <div class="meta-grid">
         <div class="meta-item"><span class="meta-label">Objetivo</span><span class="meta-value">${target || 'N/A'}</span></div>
         <div class="meta-item"><span class="meta-label">Fecha Ejecución</span><span class="meta-value">${new Date().toLocaleString()}</span></div>
@@ -236,7 +232,6 @@ export function DashboardPanel() {
       html += `</div>`;
     });
 
-    // AÑADIDO: Bóveda de Credenciales
     if (vaultCredentials.length > 0) {
         html += `<div class="host-card" style="border-color:#10b981;">
             <div class="host-header" style="background:#ecfdf5;"><div class="host-title" style="color:#047857;">🔐 Bóveda de Credenciales</div></div>
@@ -247,7 +242,6 @@ export function DashboardPanel() {
         html += `</tbody></table></div></div>`;
     }
 
-    // AÑADIDO: Bitácora de Notas
     if (redTeamNotes) {
         html += `<div class="host-card" style="border-color:#f59e0b;">
             <div class="host-header" style="background:#fffbeb;"><div class="host-title" style="color:#b45309;">📝 Bitácora de Auditoría</div></div>
@@ -262,7 +256,7 @@ export function DashboardPanel() {
   const handleSaveFile = async (type: 'md' | 'html' | 'json', content: string) => {
     try {
       const extension = type === 'md' ? 'md' : type === 'html' ? 'html' : 'json';
-      const filePath = await save({ defaultPath: `juanmap_report_${Date.now()}.${extension}`, filters: [{ name: 'Documento', extensions: [extension] }] });
+      const filePath = await save({ defaultPath: `lessso_c2_report_${Date.now()}.${extension}`, filters: [{ name: 'Documento', extensions: [extension] }] });
       if (filePath) { await writeTextFile(filePath, content); alert(`Guardado en:\n${filePath}`); }
     } catch (e: any) { alert(`Error al guardar:\n${e.message || e}`); }
   }
@@ -279,11 +273,11 @@ export function DashboardPanel() {
 
   const paginatedData = filteredData.slice(0, visibleCount);
 
-  if (isScanning && (!parsedData || parsedData.length === 0)) return <div className="bg-white dark:bg-slate-800 rounded-xl p-12 text-center shadow-sm"><h3 className="text-slate-900 dark:text-white animate-pulse">Estructurando XML...</h3></div>
+  if (isScanning && (!parsedData || parsedData.length === 0)) return <div className="bg-white dark:bg-slate-800 rounded-xl p-12 text-center shadow-sm"><h3 className="text-slate-900 dark:text-white animate-pulse font-bold">Estructurando Base de Datos de Nmap...</h3></div>
   if (!parsedData || parsedData.length === 0) return (
     <div className="bg-white dark:bg-slate-800 rounded-xl p-12 text-center shadow-sm flex flex-col items-center">
-      <h3 className="text-slate-900 dark:text-white mb-4">Centro de Datos Vacío</h3>
-      <button onClick={handleImport} className="px-4 py-2 bg-indigo-600 text-white rounded text-sm font-bold shadow hover:bg-indigo-500">Importar Workspace Anterior (.json)</button>
+      <h3 className="text-slate-900 dark:text-white mb-4 font-bold text-lg">Centro de Datos Vacío</h3>
+      <button onClick={handleImport} className="px-6 py-2 bg-indigo-600 text-white font-bold shadow-lg shadow-indigo-500/30 hover:bg-indigo-500 uppercase text-xs rounded-lg transition-all active:scale-95">Importar Workspace Anterior (.json)</button>
     </div>
   )
 
@@ -292,7 +286,6 @@ export function DashboardPanel() {
   return (
     <section className="flex flex-col h-full min-h-0 space-y-4 relative print:space-y-0 print:block">
       
-      {/* CSS DE IMPRESIÓN FORZADO */}
       <style>{`
         @media print {
           body, html, #root, main, section, div { height: auto !important; min-height: auto !important; overflow: visible !important; }
@@ -303,7 +296,6 @@ export function DashboardPanel() {
         }
       `}</style>
 
-      {/* CUADROS SUPERIORES RENOVADOS */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3 shrink-0 print:hidden">
         <div className="flex flex-col justify-center space-y-2">
           <div className="bg-indigo-50 dark:bg-indigo-900/20 p-2 rounded-lg border border-indigo-100 dark:border-indigo-800 flex justify-between items-center"><span className="block text-[9px] font-bold text-indigo-600 dark:text-indigo-400 uppercase">Hosts Activos</span><span className="text-lg font-black text-slate-900 dark:text-white">{upHosts}/{parsedData.length}</span></div>
@@ -340,7 +332,7 @@ export function DashboardPanel() {
 
       <div className="flex-1 overflow-visible space-y-4 pb-8 print:block print:space-y-6">
         <div className="hidden print:block mb-8 border-b-2 border-slate-800 pb-4 print-force-colors">
-            <h1 className="text-2xl font-black text-slate-900 uppercase">JuanMap Security Report</h1>
+            <h1 className="text-3xl font-black text-slate-900 uppercase tracking-widest font-['Poppins']">LESSSO C2 Report</h1>
             <p className="text-sm font-bold text-slate-500 mt-2">Objetivo: {target} | Fecha: {new Date().toLocaleString()}</p>
         </div>
 

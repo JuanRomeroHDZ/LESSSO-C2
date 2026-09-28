@@ -1,5 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { useState } from 'react'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useScanStore } from '../../core/store/useScanStore'
 
@@ -8,64 +7,17 @@ export function ScanConfig() {
   const [newProfileName, setNewProfileName] = useState('')
   
   const { 
-    target, scanType, timing, useOSDetection, useServiceDetection, scanAllPorts, nseCategory, nseArgs, isVerbose, isScanning,
+    scanType, timing, useOSDetection, useServiceDetection, scanAllPorts, nseCategory, nseArgs, isVerbose,
     excludeTargets, topPorts, customPorts, fastMode, discoveryMode, minRate, maxRetries, networkInterface, aggressiveMode, traceroute, reason, packetTrace, dnsResolution, hostTimeout, scanDelay,
-    versionIntensity,
-    evasionFrag, evasionMTU, evasionDecoy, evasionMac, evasionSpoofIp, badsum, randomizeHosts, zombieIp, ftpBounce,
-    customTcpFlags, proxies, dataString, dataHex, dataLength,
-    savedProfiles, autoScanInterval,
+    versionIntensity, maxOsTries,
+    evasionFrag, evasionMTU, evasionDecoy, evasionMac, evasionSourcePort, evasionSpoofIp, badsum, randomizeHosts, zombieIp, ftpBounce,
+    customTcpFlags, proxies, customDns, dataString, dataHex, dataLength,
+    savedProfiles, autoScanInterval, isScanning,
     onlyOpenPorts, osScanGuess, scriptDefault, minHostgroup, maxHostgroup,
-    nmapOutputFormat, nmapOutputPrefix, nmapOutputDir, useRustScan,
-    setTarget, setScanType, setTiming, setDiscoveryMode, setField, toggleOSDetection, toggleServiceDetection, toggleAllPorts, toggleVerbose, setNseCategory, setNseArgs,
-    getNmapArgs, setIsScanning, clearOutput, appendOutput, applyProfile, saveCustomProfile, loadCustomProfile, deleteCustomProfile, cancelScan, notifyCompletion, setScanDuration, copyMasterConfig
+    nmapOutputFormat, nmapOutputPrefix, nmapOutputDir,
+    setScanType, setTiming, setDiscoveryMode, setField, toggleOSDetection, toggleServiceDetection, toggleAllPorts, toggleVerbose, setNseCategory, setNseArgs,
+    saveCustomProfile, loadCustomProfile, deleteCustomProfile
   } = useScanStore()
-
-  const scanTimeoutRef = useRef<any>(null);
-
-  useEffect(() => {  
-    if ('__TAURI_INTERNALS__' in window && Notification.permission === 'default') {
-      Notification.requestPermission();  
-    }
-  }, []);
-
-  const handleScan = async () => {
-    if (!target) return;
-    setIsScanning(true); clearOutput(); const startTime = Date.now();
-    
-    if (useRustScan) {
-      appendOutput('>>> Inicializando RUSTSCAN (Modo Ultra Rápido)...\n');
-    } else {
-      appendOutput('>>> Inicializando Motor de Auditoría JuanMap (NMAP)...\n');
-    }
-
-    if (!('__TAURI_INTERNALS__' in window)) {
-       appendOutput('\n[SISTEMA] ⚠️ ENTORNO WEB DETECTADO ⚠️\nLos navegadores bloquean la ejecución de binarios.\n');
-       setIsScanning(false); return;
-    }
-    try {  
-      if (useRustScan) {
-        // En RustScan, el backend espera 'target' y 'nmap_args' separados
-        await invoke('run_rustscan', { target, nmapArgs: getNmapArgs() });
-      } else {
-        await invoke('run_nmap', { target, args: getNmapArgs() });  
-      }
-
-      setScanDuration(`${((Date.now() - startTime) / 1000).toFixed(2)}s`);  
-      notifyCompletion();
-      const freshState = useScanStore.getState();
-      if (freshState.autoScanInterval > 0 && freshState.isScanning) {
-        appendOutput(`\n[MONITOR] Esperando ${freshState.autoScanInterval}s para el próximo escaneo...`);
-        scanTimeoutRef.current = setTimeout(handleScan, freshState.autoScanInterval * 1000);
-      } else { setIsScanning(false); }
-    } catch (error) {  
-      appendOutput(`\n[ERROR DE SISTEMA]: ${error}`); setIsScanning(false);  
-    }
-  }
-
-  const stopEverything = () => {  
-    if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);  
-    setField('autoScanInterval', 0); cancelScan();  
-  }
 
   const selectOutputDir = async () => {
     try {
@@ -75,31 +27,12 @@ export function ScanConfig() {
   }
 
   return (
-    <section className="flex flex-col h-full relative p-1">
-      <button onClick={copyMasterConfig} title="Copiar Config (JSON)" className="absolute -top-1 -right-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm rounded-full p-1 text-slate-400 hover:text-indigo-600 transition-colors z-10">
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-      </button>
-
-      <div className="flex flex-wrap gap-1 mb-3 shrink-0">
-        <button onClick={() => applyProfile('fast')} title="Escaneo rápido a los top 100 puertos" className="flex-1 py-1 text-[9px] font-bold uppercase bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 rounded hover:bg-fuchsia-100">Fast</button>
-        <button onClick={() => applyProfile('discovery')} title="Descubrimiento de hosts vivos (Ping Sweep)" className="flex-1 py-1 text-[9px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-200">Ping</button>
-        <button onClick={() => applyProfile('evasive')} title="Escaneo sigiloso, fragmentado y lento" className="flex-1 py-1 text-[9px] font-bold uppercase bg-emerald-50 text-emerald-700 border border-emerald-200 rounded hover:bg-emerald-100">Evasivo</button>
-        <button onClick={() => applyProfile('balanced')} title="Escaneo estándar con scripts default y OS" className="flex-1 py-1 text-[9px] font-bold uppercase bg-blue-50 text-blue-700 border border-blue-200 rounded hover:bg-blue-100">Medio</button>
-        <button onClick={() => applyProfile('aggressive')} title="Modo ruidoso: Todos los puertos, scripts y OS rápido" className="flex-1 py-1 text-[9px] font-bold uppercase bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100">Agresivo</button>
+    <section className="flex flex-col h-full relative">
+      <div className="bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 p-2 shrink-0">
+         <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">⚙️ Configuración del Motor</h2>
       </div>
 
-      <div className="space-y-1 mb-3 shrink-0">
-        <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300" title="IP o Rango objetivo. Ej: 10.10.10.1 o 192.168.1.0/24">Objetivo</label>
-        <input type="text" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Ej: 192.168.1.1 10.0.0.5" className="w-full px-2 py-1.5 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded focus:ring-1 focus:ring-indigo-500 shadow-sm text-xs dark:text-white outline-none" />
-      </div>
-
-      {scanType === 'ping' && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border-l-2 border-amber-500 text-amber-700 dark:text-amber-400 p-1.5 mb-3 text-[10px] rounded shrink-0">
-          <p className="font-bold flex items-center">Ping Sweep (-sn) Activo. Sin escaneo de puertos.</p>
-        </div>
-      )}
-
-      <div className="flex border-b border-slate-200 dark:border-slate-700 mb-3 shrink-0 overflow-x-auto custom-scrollbar">
+      <div className="flex border-b border-slate-200 dark:border-slate-700 shrink-0 overflow-x-auto custom-scrollbar px-2 pt-2 bg-white dark:bg-slate-950">
         <button onClick={() => setConfigTab('basic')} className={`pb-1.5 px-2 text-[9px] font-bold uppercase border-b-2 ${configTab === 'basic' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Básico</button>
         <button onClick={() => setConfigTab('advanced')} className={`pb-1.5 px-2 text-[9px] font-bold uppercase border-b-2 ${configTab === 'advanced' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Avz.</button>
         <button onClick={() => setConfigTab('evasion')} className={`pb-1.5 px-2 text-[9px] font-bold uppercase border-b-2 ${configTab === 'evasion' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Evasión</button>
@@ -107,17 +40,21 @@ export function ScanConfig() {
         <button onClick={() => setConfigTab('output')} className={`pb-1.5 px-2 text-[9px] font-bold uppercase border-b-2 ${configTab === 'output' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Out</button>
       </div>
 
-      <div className="flex-1 overflow-y-auto pr-1 space-y-3 custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-3 space-y-3 custom-scrollbar">
+        {scanType === 'ping' && (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border-l-2 border-amber-500 text-amber-700 dark:text-amber-400 p-1.5 text-[10px] rounded shrink-0">
+            <p className="font-bold flex items-center">Ping Sweep (-sn) Activo. Sin escaneo de puertos.</p>
+          </div>
+        )}
+
         {configTab === 'basic' && (
           <div className="space-y-3 animate-in fade-in">
             <div className="space-y-1"><label className="text-[9px] font-bold text-slate-500 uppercase">Protocolo Base</label><div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded" title="TCP SYN (Rápido/Sigiloso), TCP Connect (Lento/Fiable), UDP (Servicios como DNS/SNMP)">{(['syn', 'tcp', 'udp', 'sctp', 'ping'] as const).map((type) => (<button key={type} onClick={() => setScanType(type)} className={`flex-1 py-1 text-[10px] font-bold rounded-sm uppercase ${scanType === type ? 'bg-white dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 shadow-sm' : 'text-slate-500'}`}>{type}</button>))}</div></div>
             <div className="space-y-1 p-2 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded"><label className="text-[9px] font-bold text-slate-500 uppercase flex justify-between" title="T0 (Paranoico) a T5 (Insano). HTB suele soportar T4 bien."><span>Plantilla Rate (T)</span> <span>T{timing}</span></label><input type="range" min="0" max="5" step="1" value={timing} onChange={(e) => setTiming(Number(e.target.value))} className="w-full accent-indigo-600" /></div>
             <div className="grid grid-cols-2 gap-2">
               <label title="Escanea los 100 puertos más comunes (-F)" className="flex items-center space-x-1.5 cursor-pointer bg-slate-50 dark:bg-slate-800/50 px-2 py-1 rounded border border-slate-200 dark:border-slate-700/50"><input type="checkbox" checked={fastMode} disabled={scanType==='ping' || scanAllPorts} onChange={() => { setField('fastMode', !fastMode); if(!fastMode){ setField('topPorts',''); setField('customPorts',''); } }} className="rounded text-indigo-600 disabled:opacity-30 w-3 h-3" /><span className="text-[9px] font-bold uppercase dark:text-slate-300">Fast (-F)</span></label>
-              <label title="Utiliza el binario RustScan para descubrir puertos en segundos antes de pasar a Nmap" className="flex items-center space-x-1.5 cursor-pointer bg-slate-50 dark:bg-slate-800/50 px-2 py-1 rounded border border-slate-200 dark:border-slate-700/50"><input type="checkbox" checked={useRustScan} onChange={() => setField('useRustScan', !useRustScan)} className="rounded text-orange-500 w-3 h-3" /><span className="text-[9px] font-bold uppercase text-orange-600 dark:text-orange-400">⚡ RustScan</span></label>
-              
               <div className="space-y-0.5"><input type="text" value={topPorts} disabled={scanType==='ping' || scanAllPorts || fastMode} onChange={(e) => { setField('topPorts', e.target.value); setField('customPorts',''); }} placeholder="Top Pts (100)" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded dark:text-slate-200 outline-none disabled:opacity-30" title="Escanea el top N de puertos TCP/UDP" /></div>
-              <div className="space-y-0.5"><input type="text" value={customPorts} disabled={scanType==='ping' || scanAllPorts || fastMode} onChange={(e) => { setField('customPorts', e.target.value); setField('topPorts',''); }} placeholder="Puertos Custom (-p)" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded dark:text-slate-200 outline-none disabled:opacity-30 font-mono" title="Puertos específicos separados por comas. Ej: 22,80,443" /></div>
+              <div className="space-y-0.5 col-span-2"><input type="text" value={customPorts} disabled={scanType==='ping' || scanAllPorts || fastMode} onChange={(e) => { setField('customPorts', e.target.value); setField('topPorts',''); }} placeholder="Puertos Custom (-p) Ej: 22,80,443" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded dark:text-slate-200 outline-none disabled:opacity-30 font-mono" /></div>
             </div>
             <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Excluir IPs</label><input type="text" value={excludeTargets} onChange={(e) => setField('excludeTargets', e.target.value)} placeholder="192.168.1.1" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded dark:text-slate-200 outline-none" title="Ignora estos hosts durante el escaneo (--exclude)" /></div>
             <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Descubrimiento Inicial</label><select value={discoveryMode} onChange={(e) => setDiscoveryMode(e.target.value)} className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-[10px] dark:text-slate-200 outline-none" title="Si el objetivo bloquea Pings, usa '-Pn' para forzar el escaneo de puertos de todas formas."><option value="">Auto</option><option value="-Pn">No Ping (-Pn)</option><option value="-PR">ARP Ping (-PR)</option><option value="-PE">ICMP Echo (-PE)</option></select></div>
@@ -128,6 +65,7 @@ export function ScanConfig() {
               <label className="flex items-center space-x-1.5 cursor-pointer" title="Oculta puertos filtrados/cerrados del output (--open)"><input type="checkbox" checked={onlyOpenPorts} disabled={scanType === 'ping'} onChange={() => setField('onlyOpenPorts', !onlyOpenPorts)} className="rounded text-indigo-600 disabled:opacity-30 w-3 h-3" /><span className={`text-[10px] font-medium ${scanType === 'ping' ? 'text-slate-400 line-through' : 'dark:text-slate-300'}`}>Solo Open</span></label>
               <label className="flex items-center space-x-1.5 cursor-pointer" title="Muestra resultados en tiempo real en la terminal (-v)"><input type="checkbox" checked={isVerbose} onChange={toggleVerbose} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[10px] font-medium dark:text-slate-300">Verbose (-v)</span></label>
             </div>
+            
             <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 rounded space-y-1">
               <label className="text-[9px] font-bold text-slate-500 uppercase">Mis Perfiles</label>
               <div className="flex gap-1.5">
@@ -155,16 +93,17 @@ export function ScanConfig() {
               <label className="flex items-center space-x-1.5 cursor-pointer" title="Lanza scripts seguros por defecto (como banner grabbing, smb-os-discovery) (-sC)"><input type="checkbox" checked={scriptDefault} disabled={scanType === 'ping' || aggressiveMode} onChange={() => setField('scriptDefault', !scriptDefault)} className="rounded text-indigo-600 disabled:opacity-30 w-3 h-3" /><span className="text-[9px] font-bold dark:text-slate-300 uppercase">Def. Scripts (-sC)</span></label>
               <label className="flex items-center space-x-1.5 cursor-pointer" title="Imprime en pantalla cada paquete de red enviado y recibido (--packet-trace)"><input type="checkbox" checked={packetTrace} onChange={() => setField('packetTrace', !packetTrace)} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[9px] font-bold dark:text-slate-300 uppercase">Packet Trace</span></label>
               <label className="flex items-center space-x-1.5 cursor-pointer" title="Rastrea la ruta de red hacia el objetivo (--traceroute)"><input type="checkbox" checked={traceroute} onChange={() => setField('traceroute', !traceroute)} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[9px] font-bold dark:text-slate-300 uppercase">Traceroute</span></label>
-              <label className="flex items-center space-x-1.5 cursor-pointer" title="Muestra el motivo exacto (ej. syn-ack, rst) por el cual Nmap consideró el puerto abierto/cerrado (--reason)"><input type="checkbox" checked={reason} onChange={() => setField('reason', !reason)} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[9px] font-bold dark:text-slate-300 uppercase">Razón</span></label>
+              <label className="flex items-center space-x-1.5 cursor-pointer" title="Muestra el motivo exacto por el cual Nmap consideró el puerto abierto/cerrado (--reason)"><input type="checkbox" checked={reason} onChange={() => setField('reason', !reason)} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[9px] font-bold dark:text-slate-300 uppercase">Razón</span></label>
             </div>
             <div className="space-y-1.5 p-2 border rounded transition-colors bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700/50">
               <label className="text-[9px] font-bold text-slate-500 uppercase flex justify-between" title="Nmap Scripting Engine (Lanza tests de vulnerabilidades específicos)">Motor Scripts (NSE)</label>
               <select value={nseCategory} onChange={(e) => setNseCategory(e.target.value)} disabled={scanType === 'ping' || scriptDefault || aggressiveMode} className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-[10px] dark:text-slate-200 outline-none disabled:opacity-50">
                 <option value="">Ninguno / Manual</option><option value="default">Default</option><option value="vuln">Vuln (Búsqueda de CVEs)</option><option value="brute">Brute (Ataque Diccionario)</option><option value="discovery">Discovery (Descubrimiento Extra)</option>
               </select>
-              {nseCategory && <input type="text" value={nseArgs} onChange={(e) => setNseArgs(e.target.value)} placeholder="Args: http.useragent=JuanMap" className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 rounded text-[10px] font-mono outline-none" title="Argumentos extra para los scripts" />}
+              {nseCategory && <input type="text" value={nseArgs} onChange={(e) => setNseArgs(e.target.value)} placeholder="Args: http.useragent=LESSSO" className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-300 rounded text-[10px] font-mono outline-none" title="Argumentos extra para los scripts" />}
             </div>
             <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Max OS Tries</label><input type="number" value={maxOsTries} onChange={(e) => setField('maxOsTries', e.target.value)} placeholder="Ej: 1" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /></div>
               <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase" title="0 a 9. Qué tanto insistirá en averiguar la versión de un servicio (--version-intensity)">Ver. Intensity</label><input type="number" min="0" max="9" value={versionIntensity} disabled={!useServiceDetection} onChange={(e) => setField('versionIntensity', e.target.value)} placeholder="0 a 9" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none disabled:opacity-30" /></div>
               <div className="space-y-0.5 flex flex-col justify-end pb-1"><label className="flex items-center space-x-1.5 cursor-pointer" title="Forzar una suposición de SO aunque Nmap no esté seguro (--osscan-guess)"><input type="checkbox" checked={osScanGuess} disabled={!useOSDetection} onChange={() => setField('osScanGuess', !osScanGuess)} className="rounded text-indigo-600 disabled:opacity-30 w-3 h-3" /><span className="text-[9px] font-bold dark:text-slate-300 uppercase">OS Adivinar</span></label></div>
               <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase" title="Fuerza un envío de N paquetes por segundo mínimo (--min-rate). Cuidado: Puede congestionar la red y saltar puertos.">Min Rate</label><input type="text" value={minRate} onChange={(e) => setField('minRate', e.target.value)} placeholder="Ej: 1000" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none font-mono" /></div>
@@ -173,6 +112,7 @@ export function ScanConfig() {
               <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Max Hostgroup</label><input type="text" value={maxHostgroup} onChange={(e) => setField('maxHostgroup', e.target.value)} placeholder="Ej: 256" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none font-mono" /></div>
               <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Host Timeout</label><input type="text" value={hostTimeout} onChange={(e) => setField('hostTimeout', e.target.value)} placeholder="10m" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /></div>
               <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase" title="Pausa N tiempo entre paquete y paquete (--scan-delay). Excelente para evadir Firewalls o WAFs.">Scan Delay</label><input type="text" value={scanDelay} onChange={(e) => setField('scanDelay', e.target.value)} placeholder="1s" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /></div>
+              <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Custom DNS</label><input type="text" value={customDns} onChange={(e) => setField('customDns', e.target.value)} placeholder="8.8.8.8" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /></div>
             </div>
           </div>
         )}
@@ -184,6 +124,7 @@ export function ScanConfig() {
              <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">MTU Personalizado</label><input type="text" value={evasionMTU} onChange={(e) => setField('evasionMTU', e.target.value)} placeholder="Ej: 24" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /></div>
              <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase" title="Genera IPs falsas (Señuelos) para confundir a los equipos de defensa (-D).">Decoys (-D)</label><input type="text" value={evasionDecoy} onChange={(e) => setField('evasionDecoy', e.target.value)} placeholder="RND:10,ME" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /></div>
              <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase" title="Falsificar la dirección IP o la dirección MAC (--spoof-mac / -S)">Spoof MAC / Source IP (-S)</label><div className="flex gap-1"><input type="text" value={evasionMac} onChange={(e) => setField('evasionMac', e.target.value)} placeholder="MAC" className="w-1/2 px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /><input type="text" value={evasionSpoofIp} onChange={(e) => setField('evasionSpoofIp', e.target.value)} placeholder="IP" className="w-1/2 px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /></div></div>
+             <div className="space-y-0.5"><label className="text-[9px] font-bold text-slate-500 uppercase">Source Port Falso (-g)</label><input type="text" value={evasionSourcePort} onChange={(e) => setField('evasionSourcePort', e.target.value)} placeholder="Ej: 53" className="w-full px-2 py-1 text-[10px] bg-white dark:bg-slate-900 border border-slate-300 rounded outline-none" /></div>
           </div>
         )}
 
@@ -222,23 +163,16 @@ export function ScanConfig() {
                 </div>
               </div>
             </div>
+            
+            <div className="bg-slate-100 dark:bg-slate-800 p-2.5 rounded border border-slate-200 dark:border-slate-700 mt-4">
+               <label className="text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase flex justify-between mb-1.5">Auto Monitor</label>
+               <select value={autoScanInterval} onChange={(e) => setField('autoScanInterval', Number(e.target.value))} disabled={isScanning} className="w-full bg-white dark:bg-slate-900 text-[10px] font-bold p-1.5 rounded outline-none text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600">
+                  <option value={0}>Apagado</option><option value={30}>Cada 30 seg</option><option value={60}>Cada 1 min</option><option value={300}>Cada 5 min</option>
+               </select>
+            </div>
           </div>
         )}
 
-      </div>
-      
-      <div className="pt-3 shrink-0 mt-auto border-t border-slate-100 dark:border-slate-800 space-y-1.5">
-        <div className="flex items-center justify-between px-1">
-          <label className="text-[9px] font-bold text-slate-500 uppercase">Modo Monitor</label>
-          <select value={autoScanInterval} onChange={(e) => setField('autoScanInterval', Number(e.target.value))} disabled={isScanning} className="bg-slate-100 dark:bg-slate-800 text-[9px] font-bold p-0.5 rounded outline-none text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-            <option value={0}>Apagado</option><option value={30}>30 seg</option><option value={60}>1 min</option><option value={300}>5 min</option>
-          </select>
-        </div>
-        {isScanning ? (
-          <button onClick={stopEverything} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold text-xs py-2 rounded-md shadow-lg shadow-red-500/20 active:scale-95 transition-transform flex justify-center items-center gap-1.5"><span className="w-1.5 h-1.5 bg-white rounded-full animate-ping"></span>{autoScanInterval > 0 ? 'DETENER MONITOR' : 'DETENER AUDITORÍA'}</button>
-        ) : (
-          <button onClick={handleScan} disabled={!target} className="w-full bg-indigo-600 disabled:bg-slate-400 dark:disabled:bg-slate-700 hover:bg-indigo-700 text-white font-bold text-xs py-2 rounded-md shadow-lg shadow-indigo-500/20 active:scale-95 disabled:active:scale-100 transition-transform">LANZAR AUDITORÍA</button>
-        )}
       </div>
     </section>
   )
