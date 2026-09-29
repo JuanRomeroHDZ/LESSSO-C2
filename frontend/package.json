@@ -16,6 +16,7 @@
     "@tauri-apps/plugin-dialog": "^2.8.0",
     "@tauri-apps/plugin-fs": "^2.6.0",
     "@tauri-apps/plugin-notification": "^2.5.0",
+    "@tauri-apps/plugin-shell": "^2.0.0",
     "@uiw/react-md-editor": "^4.1.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",

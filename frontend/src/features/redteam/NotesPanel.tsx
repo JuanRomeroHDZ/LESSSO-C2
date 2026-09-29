@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import MDEditor from '@uiw/react-md-editor';
 import { useScanStore } from '../../core/store/useScanStore';
 
@@ -9,7 +11,7 @@ export function NotesPanel() {
   const [saveStatus, setSaveStatus] = useState(autoSaveEnabled ? 'Autoguardado activado' : 'Autoguardado pausado');
 
   const handleChange = (val?: string) => {
-    const value = val || '';
+    let value = val || '';
     setRedTeamNotes(value);
     setSaveStatus('Guardando...');
     setTimeout(() => setSaveStatus(autoSaveEnabled ? 'Guardado en disco' : 'Solo guardado en sesión local'), 800);
@@ -26,6 +28,47 @@ export function NotesPanel() {
     }
     setRedTeamNotes(redTeamNotes + template);
   }
+
+  // INTERCEPTOR DE CAPTURAS DE PANTALLA
+  const handlePaste = async (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const items = e.clipboardData.items;
+    let imageItem = null;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        imageItem = items[i];
+        break;
+      }
+    }
+
+    if (imageItem) {
+      e.preventDefault(); // Evitamos que pegue datos basura
+      setSaveStatus('Guardando captura de pantalla...');
+      const blob = imageItem.getAsFile();
+      if (!blob) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const base64Data = event.target?.result as string;
+        try {
+          // Enviamos la imagen a Rust para que la guarde como PNG en disco
+          const localPath = await invoke<string>('save_clipboard_image', { base64Data });
+          
+          // Convertimos la ruta local a una URI permitida por Tauri para mostrarla en el navegador
+          const assetUrl = convertFileSrc(localPath);
+          
+          // Insertamos la sintaxis de imagen Markdown en las notas
+          const imgTag = `\n![Captura de Pantalla](${assetUrl})\n`;
+          setRedTeamNotes(redTeamNotes + imgTag);
+          setSaveStatus('Imagen guardada y vinculada');
+        } catch (error) {
+          console.error("Error guardando imagen:", error);
+          setSaveStatus('Error al guardar captura');
+        }
+      };
+      reader.readAsDataURL(blob);
+    }
+  };
 
   const downloadNotes = async () => {
     try {
@@ -55,7 +98,9 @@ export function NotesPanel() {
           <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
           Bitácora de Auditoría
         </h2>
+        
         <div className="flex items-center space-x-3">
+          <span className="text-[9px] font-bold text-slate-500 bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded hidden sm:block">💡 Soporta Ctrl+V para Capturas de Pantalla</span>
           <span className={`text-[9px] font-bold uppercase tracking-wider ${autoSaveEnabled ? 'text-slate-400' : 'text-orange-500 animate-pulse'}`}>{saveStatus}</span>
           
           <div className="relative group">
@@ -73,7 +118,7 @@ export function NotesPanel() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 bg-white dark:bg-slate-950 custom-scrollbar" data-color-mode={theme}>
+      <div className="flex-1 min-h-0 bg-white dark:bg-slate-950 custom-scrollbar" data-color-mode={theme} onPaste={handlePaste}>
         <MDEditor
           value={redTeamNotes}
           onChange={handleChange}

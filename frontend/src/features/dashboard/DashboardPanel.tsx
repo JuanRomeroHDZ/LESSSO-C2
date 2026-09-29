@@ -7,11 +7,11 @@ import { useScanStore, type HostInfo } from '../../core/store/useScanStore'
 const IANA_PORTS: Record<string, string> = { '21': 'FTP', '22': 'SSH', '23': 'Telnet', '25': 'SMTP', '53': 'DNS', '80': 'HTTP', '110': 'POP3', '143': 'IMAP', '443': 'HTTPS', '445': 'SMB', '3306': 'MySQL', '3389': 'RDP', '5432': 'PostgreSQL', '8080': 'HTTP-Alt', '8443': 'HTTPS-Alt' }
 
 const detectCVEs = (service: string, version: string) => {
-  const cves: { id: string, severity: 'critical' | 'high' | 'medium' }[] = []; 
+  const cves: { id: string, severity: 'critical' | 'high' | 'medium' }[] = [];  
   const s = `${service || ''} ${version || ''}`.toLowerCase();
   
-  if (s.includes('openssh 8.') || s.includes('openssh 9.0') || s.includes('openssh 9.1')) cves.push({ id: 'CVE-2023-38408 (RCE)', severity: 'critical' });
-  if (s.includes('vsftpd 2.3.4')) cves.push({ id: 'CVE-2011-2523 (Backdoor)', severity: 'high' });
+  if (s.includes('openssh 8.') || s.includes('openssh 9.0') || s.includes('openssh 9.1')) cves.push({ id: 'CVE-2023-38408', severity: 'critical' });
+  if (s.includes('vsftpd 2.3.4')) cves.push({ id: 'CVE-2011-2523', severity: 'high' });
   if ((s.includes('smb') || s.includes('microsoft-ds')) && (s.includes('windows 7') || s.includes('windows server 2008'))) cves.push({ id: 'MS17-010', severity: 'critical' });
   if (s.includes('apache') && s.includes('2.4.49')) cves.push({ id: 'CVE-2021-41773', severity: 'high' });
   if (s.includes('proftpd 1.3.5')) cves.push({ id: 'CVE-2015-3306', severity: 'high' });
@@ -41,7 +41,7 @@ const calculateScore = (host: HostInfo) => {
   if (score < 90) { grade = 'B'; color = 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400'; }
   if (score < 70) { grade = 'C'; color = 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-400'; }
   if (score < 50) { grade = 'D'; color = 'bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-400'; }
-  if (score < 30) { grade = 'F'; color = 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400 animate-pulse border-red-500 border'; }
+  if (score < 30) { grade = 'F'; color = 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400 border-red-500 border'; }
   return { score, grade, color, vulns };
 }
 
@@ -51,11 +51,9 @@ export function DashboardPanel() {
   const { parsedData, historyData, isScanning, target, commandString, theme, scanDuration, clearHistory, compactMode, toggleCompactMode, importWorkspace, vaultCredentials, redTeamNotes } = useScanStore()
   const [search, setSearch] = useState('')
   const [showDiff, setShowDiff] = useState(false)
-  
-  const [filterUp, setFilterUp] = useState(false)  
-  const [filterVuln, setFilterVuln] = useState(false) 
-  const [filterWeb, setFilterWeb] = useState(false) 
-  
+  const [filterUp, setFilterUp] = useState(false)   
+  const [filterVuln, setFilterVuln] = useState(false)  
+  const [filterWeb, setFilterWeb] = useState(false)  
   const [visibleCount, setVisibleCount] = useState(20)
   const [expandedPorts, setExpandedPorts] = useState<Record<string, boolean>>({})
   const [expandedHosts, setExpandedHosts] = useState<Record<string, boolean>>({})
@@ -80,8 +78,8 @@ export function DashboardPanel() {
     (parsedData || []).forEach(h => {
       const osName = h.os ? h.os.split(' ')[0] : 'Unknown'; osMap[osName] = (osMap[osName] || 0) + 1;
       (h.ports || []).forEach(p => {
-        if (p.state === 'open') {  
-            open++;  
+        if (p.state === 'open') {   
+            open++;   
             const cves = detectCVEs(p.service, p.version);
             cves.forEach(c => {
                if(c.severity === 'critical') crit++;
@@ -97,10 +95,10 @@ export function DashboardPanel() {
 
     const topServices = Object.entries(srvMap).map(([name, count]) => ({ name, count })).sort((a,b) => b.count - a.count).slice(0, 5);
 
-    return {  
-      upHosts: (parsedData || []).filter(h => h.status === 'up').length,  
-      sevMetrics: { crit, high, med, total: crit + high + med },  
-      portChartData: [ { name: 'Abiertos', value: open }, { name: 'Filtrados', value: filtered }, { name: 'Cerrados', value: closed } ].filter(d => d.value > 0),  
+    return {   
+      upHosts: (parsedData || []).filter(h => h.status === 'up').length,   
+      sevMetrics: { crit, high, med, total: crit + high + med },   
+      portChartData: [ { name: 'Abiertos', value: open }, { name: 'Filtrados', value: filtered }, { name: 'Cerrados', value: closed } ].filter(d => d.value > 0),   
       osChartData: Object.entries(osMap).map(([name, value]) => ({ name, value })),
       topServicesData: topServices
     }
@@ -140,8 +138,8 @@ export function DashboardPanel() {
       if(host.ports && host.ports.length > 0) {
         md += `### Puertos Descubiertos\n`;
         md += `| Puerto | Estado | Razón | Servicio | Versión | Info Extra |\n|---|---|---|---|---|---|\n`;
-        host.ports.forEach(p => {  
-          md += `| ${p.portid}/${p.protocol} | ${p.state} | ${p.reason} | ${p.service || '-'} | ${p.version || '-'} | ${p.scripts && p.scripts.length > 0 ? p.scripts.length + ' scripts' : '-'} |\n`;  
+        host.ports.forEach(p => {   
+          md += `| ${p.portid}/${p.protocol} | ${p.state} | ${p.reason} | ${p.service || '-'} | ${p.version || '-'} | ${p.scripts && p.scripts.length > 0 ? p.scripts.length + ' scripts' : '-'} |\n`;
         });
 
         const portsWithScripts = host.ports.filter(p => p.scripts && p.scripts.length > 0);
@@ -228,7 +226,7 @@ export function DashboardPanel() {
         html += `<div class="section-title">Puertos Descubiertos</div>
         <div class="table-container"><table><thead><tr><th>Puerto</th><th>Estado / Razón</th><th>Servicio</th><th>Versión / Producto</th><th>Scripts Extra</th></tr></thead><tbody>`;
         
-        host.ports.forEach(p => {  
+        host.ports.forEach(p => {   
           const hasScripts = p.scripts && p.scripts.length > 0;
           let scriptsHtml = '';
           if(hasScripts) { p.scripts!.forEach(s => { scriptsHtml += `<div class="script-block"><span class="script-title">↳ ${s.id}</span>${s.output}</div>`; }); }
@@ -239,7 +237,7 @@ export function DashboardPanel() {
             <td><strong>${p.service || '-'}</strong></td>
             <td>${p.version || '-'}</td>
             <td>${hasScripts ? scriptsHtml : '<span style="color:#cbd5e1">-</span>'}</td>
-          </tr>`;  
+          </tr>`;   
         });
         html += `</tbody></table></div>`;
       } else { html += `<div style="padding:20px; color:#64748b; font-style:italic;">Sin puertos abiertos detectados.</div>`; }
@@ -377,6 +375,11 @@ export function DashboardPanel() {
           const { score, grade, color, vulns } = calculateScore(host);
           const hasHostScripts = host.scripts && host.scripts.length > 0;
           const hostExpanded = expandedHosts[host.ip];
+          
+          let osIcon = '💻';
+          if (host.os.toLowerCase().includes('win')) osIcon = '🪟';
+          if (host.os.toLowerCase().includes('linux')) osIcon = '🐧';
+          if (host.os.toLowerCase().includes('mac') || host.os.toLowerCase().includes('apple')) osIcon = '🍎';
 
           return (
           <div key={`${host.ip}-${idx}`} className={`print-page-break print-force-colors bg-white dark:bg-slate-800 rounded-lg shadow-sm border ${vulns > 0 ? 'border-red-300 dark:border-red-900/50 print:border-slate-300' : 'border-slate-200 dark:border-slate-700 print:border-slate-300'} overflow-hidden flex flex-col print:shadow-none print:bg-white print:text-black`}>
@@ -384,7 +387,7 @@ export function DashboardPanel() {
             <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-2 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center print:bg-white print:border-slate-300">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-[13px] font-black text-[#0b282c] dark:text-white print:text-black">{host.ip}</h2>
+                  <h2 className="text-[13px] font-black text-[#0b282c] dark:text-white print:text-black flex items-center gap-1">{osIcon} {host.ip}</h2>
                   {host.hostname && <span className="text-[9px] font-bold text-slate-500 bg-slate-200 dark:bg-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 print:bg-slate-100 print:text-slate-800">{host.hostname}</span>}
                 </div>
                 <div className="flex gap-1.5 items-center mt-0.5">
@@ -448,7 +451,7 @@ export function DashboardPanel() {
                             <td className={`px-3 ${pyClass} text-slate-500 dark:text-slate-400 print:text-slate-600`}>{port.version || '-'}</td>
                             <td className={`px-3 ${pyClass} flex justify-end gap-1.5`}>
                                {cvList.length > 0 ? (
-                                  <div className="flex flex-col gap-1">{cvList.map((v, i) => <span key={i} className={`text-white text-[9px] px-1.5 py-0.5 rounded font-bold w-fit print:border ${v.severity === 'critical' ? 'bg-red-600 print:border-red-600' : 'bg-orange-500 print:border-orange-500'}`}>{compactMode ? '⚠️' : v.id}</span>)}</div>
+                                  <div className="flex flex-col gap-1">{cvList.map((v, i) => <span key={i} className={`text-white text-[9px] px-1.5 py-0.5 rounded font-bold w-fit print:border ${v.severity === 'critical' ? 'bg-red-600 print:border-red-600' : 'bg-orange-500 print:border-orange-500'}`}>{compactMode ? '⚠' : v.id}</span>)}</div>
                                 ) : !compactMode && <span className="text-[9px] text-slate-400 print:text-slate-500">Ok</span>}
                             </td>
                           </tr>

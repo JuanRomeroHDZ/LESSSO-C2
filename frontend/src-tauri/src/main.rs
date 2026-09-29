@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, State};
+use base64::{engine::general_purpose, Engine as _};
 
 struct ScanProcess(AtomicU32);
 
@@ -26,11 +27,31 @@ struct HostInfo { ip: String, hostname: String, mac: String, mac_vendor: String,
 #[derive(serde::Serialize)]
 struct ScanResult { hosts: Vec<HostInfo> }
 
+// NUEVO: Comando para guardar las capturas de pantalla de la Bitácora
+#[tauri::command]
+async fn save_clipboard_image(base64_data: String) -> Result<String, String> {
+    let parts: Vec<&str> = base64_data.split(',').collect();
+    if parts.len() != 2 { return Err("Formato Base64 inválido".to_string()); }
+    
+    let image_data = general_purpose::STANDARD.decode(parts[1])
+        .map_err(|e| format!("Error decodificando imagen: {}", e))?;
+        
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    let temp_dir = std::env::temp_dir();
+    let file_path = temp_dir.join(format!("lessso_screenshot_{}.png", timestamp));
+    
+    let mut file = std::fs::File::create(&file_path)
+        .map_err(|e| format!("Error creando archivo de imagen: {}", e))?;
+    file.write_all(&image_data)
+        .map_err(|e| format!("Error escribiendo imagen: {}", e))?;
+        
+    Ok(file_path.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 async fn get_network_interfaces() -> Result<Vec<String>, String> {
     let output = Command::new("ip").args(["-o", "link", "show"]).output();
     let mut interfaces = Vec::new();
-    
     if let Ok(out) = output {
         if out.status.success() {
             let stdout = String::from_utf8_lossy(&out.stdout);
@@ -38,9 +59,7 @@ async fn get_network_interfaces() -> Result<Vec<String>, String> {
                 let parts: Vec<&str> = line.split(':').collect();
                 if parts.len() > 1 {
                     let iface_name = parts[1].trim();
-                    if !iface_name.starts_with("lo") {  
-                        interfaces.push(iface_name.to_string());
-                    }
+                    if !iface_name.starts_with("lo") { interfaces.push(iface_name.to_string()); }
                 }
             }
             return Ok(interfaces);
@@ -70,23 +89,12 @@ async fn check_vpn() -> Result<String, String> {
 
 #[tauri::command]
 async fn connect_vpn(ovpn_path: String) -> Result<(), String> {
-    // RESOLUCIÓN DINÁMICA: Buscamos la ruta absoluta de OpenVPN para satisfacer la seguridad de pkexec.
-    let openvpn_exe = if std::path::Path::new("/usr/sbin/openvpn").exists() {
-        "/usr/sbin/openvpn"
-    } else if std::path::Path::new("/usr/bin/openvpn").exists() {
-        "/usr/bin/openvpn"
-    } else {
-        "openvpn" // Fallback
-    };
-
+    let openvpn_exe = if std::path::Path::new("/usr/sbin/openvpn").exists() { "/usr/sbin/openvpn" } 
+                      else if std::path::Path::new("/usr/bin/openvpn").exists() { "/usr/bin/openvpn" } 
+                      else { "openvpn" };
     let output = Command::new("pkexec")
-        .arg(openvpn_exe)
-        .arg("--config")
-        .arg(&ovpn_path)
-        .arg("--daemon")
-        .output()
-        .map_err(|e| format!("DEPENDENCY_MISSING: {}", e))?;
-
+        .arg(openvpn_exe).arg("--config").arg(&ovpn_path).arg("--daemon")
+        .output().map_err(|e| format!("DEPENDENCY_MISSING: {}", e))?;
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Autenticación cancelada o fallo de OpenVPN:\n{}", err_msg));
@@ -96,34 +104,40 @@ async fn connect_vpn(ovpn_path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn disconnect_vpn() -> Result<(), String> {
-    // RESOLUCIÓN DINÁMICA: Buscamos la ruta absoluta de killall
-    let killall_exe = if std::path::Path::new("/usr/bin/killall").exists() {
-        "/usr/bin/killall"
-    } else {
-        "/bin/killall"
-    };
-
+    let killall_exe = if std::path::Path::new("/usr/bin/killall").exists() { "/usr/bin/killall" } else { "/bin/killall" };
     let mut child = Command::new("sh")
-        .arg("-c")
-        .arg(format!("pkexec {} openvpn || sudo {} openvpn || killall openvpn", killall_exe, killall_exe))
-        .spawn()
-        .map_err(|e| format!("Error cerrando VPN: {}", e))?;
-    
+        .arg("-c").arg(format!("pkexec {} openvpn || sudo {} openvpn || killall openvpn", killall_exe, killall_exe))
+        .spawn().map_err(|e| format!("Error cerrando VPN: {}", e))?;
     let _ = child.wait();
+    Ok(())
+}
+
+#[tauri::command]
+async fn run_fuzzer(app: AppHandle, target_url: String, wordlist: String) -> Result<(), String> {
+    let mut cmd = Command::new("gobuster");
+    cmd.args(["dir", "-u", &target_url, "-w", &wordlist, "-t", "50", "-q", "--no-error", "--no-color"])
+       .stdout(Stdio::piped()).stderr(Stdio::piped());
+       
+    let mut child = cmd.spawn().map_err(|e| format!("Error lanzando Gobuster: Asegúrate de tenerlo instalado (sudo apt install gobuster).\n{}", e))?;
+    let app_out = app.clone();
+    
+    if let Some(stdout) = child.stdout.take() {
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().flatten() { let _ = app_out.emit("fuzzer-output", line); }
+            let _ = app_out.emit("fuzzer-finished", ());
+        });
+    }
     Ok(())
 }
 
 fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
     if !std::path::Path::new(xml_path).exists() { return Err("XML no generado.".into()); }
     let xml_text = std::fs::read_to_string(xml_path).map_err(|e| e.to_string())?;
-    
     let mut safe_xml = xml_text.clone();
     if let Some(start) = safe_xml.find("<!DOCTYPE") {
-        if let Some(end_offset) = safe_xml[start..].find('>') {
-            safe_xml.replace_range(start..=start + end_offset, "");
-        }
+        if let Some(end_offset) = safe_xml[start..].find('>') { safe_xml.replace_range(start..=start + end_offset, ""); }
     }
-
     let doc = roxmltree::Document::parse(&safe_xml).map_err(|e| format!("Error de parseo XML: {}", e))?;
     let mut host_map: HashMap<String, HostInfo> = HashMap::new();
 
@@ -144,7 +158,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             }
         }
         let hostname = hostnames.join(", ");
-
         let status = host_node.descendants().find(|n| n.has_tag_name("status")).and_then(|n| n.attribute("state")).unwrap_or("unknown").to_string();
         let mut os = String::new();
         if let Some(os_match) = host_node.descendants().find(|n| n.has_tag_name("osmatch")) { os = os_match.attribute("name").unwrap_or("").to_string(); }
@@ -198,11 +211,7 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
 #[tauri::command]
 async fn start_terminal(app: AppHandle, state: State<'_, TerminalState>, session_id: String, cmd: String, args: Vec<String>) -> Result<(), String> {
     let mut command = Command::new(&cmd);
-    command.args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    
+    command.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|e| format!("Error lanzando comando: {}", e))?;
     
     let stdin = child.stdin.take().ok_or("Error capturando stdin")?;
@@ -211,62 +220,31 @@ async fn start_terminal(app: AppHandle, state: State<'_, TerminalState>, session
     let mut stdout = child.stdout.take().ok_or("Error capturando stdout")?;
     let mut stderr = child.stderr.take().ok_or("Error capturando stderr")?;
 
-    let app_out = app.clone();
-    let sid_out = session_id.clone();
+    let app_out = app.clone(); let sid_out = session_id.clone();
     std::thread::spawn(move || {
         let mut buf = [0; 1024];
-        loop {
-            match stdout.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[0..n]).to_string();
-                    let _ = app_out.emit(&format!("term-output-{}", sid_out), chunk);
-                }
-                Err(_) => break,
-            }
-        }
+        loop { match stdout.read(&mut buf) { Ok(0) | Err(_) => break, Ok(n) => { let chunk = String::from_utf8_lossy(&buf[0..n]).to_string(); let _ = app_out.emit(&format!("term-output-{}", sid_out), chunk); } } }
     });
 
-    let app_err = app.clone();
-    let sid_err = session_id.clone();
+    let app_err = app.clone(); let sid_err = session_id.clone();
     std::thread::spawn(move || {
         let mut buf = [0; 1024];
-        loop {
-            match stderr.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let chunk = String::from_utf8_lossy(&buf[0..n]).to_string();
-                    let _ = app_err.emit(&format!("term-output-{}", sid_err), chunk);
-                }
-                Err(_) => break,
-            }
-        }
+        loop { match stderr.read(&mut buf) { Ok(0) | Err(_) => break, Ok(n) => { let chunk = String::from_utf8_lossy(&buf[0..n]).to_string(); let _ = app_err.emit(&format!("term-output-{}", sid_err), chunk); } } }
     });
 
     let sid_exit = session_id.clone();
-    std::thread::spawn(move || {
-        let _ = child.wait();
-        let _ = app.emit(&format!("term-exit-{}", sid_exit), ());
-    });
-
+    std::thread::spawn(move || { let _ = child.wait(); let _ = app.emit(&format!("term-exit-{}", sid_exit), ()); });
     Ok(())
 }
 
 #[tauri::command]
 async fn write_terminal(state: State<'_, TerminalState>, session_id: String, data: String) -> Result<(), String> {
-    if let Some(stdin) = state.stdins.lock().unwrap().get_mut(&session_id) {
-        let _ = stdin.write_all(data.as_bytes());
-        let _ = stdin.flush();
-        Ok(())
-    } else {
-        Err("Sesión no encontrada".into())
-    }
+    if let Some(stdin) = state.stdins.lock().unwrap().get_mut(&session_id) { let _ = stdin.write_all(data.as_bytes()); let _ = stdin.flush(); Ok(()) } else { Err("Sesión no encontrada".into()) }
 }
 
 #[tauri::command]
 async fn kill_terminal(state: State<'_, TerminalState>, session_id: String) -> Result<(), String> {
-    state.stdins.lock().unwrap().remove(&session_id);
-    Ok(())
+    state.stdins.lock().unwrap().remove(&session_id); Ok(())
 }
 
 #[tauri::command]
@@ -284,20 +262,10 @@ async fn run_nmap(app: AppHandle, state: State<'_, ScanProcess>, target: String,
     state.0.store(child.id(), Ordering::SeqCst);
 
     let app_out = app.clone();
-    if let Some(stdout) = child.stdout.take() {
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines().flatten() { let _ = app_out.emit("nmap-output", line); }
-        });
-    }
+    if let Some(stdout) = child.stdout.take() { std::thread::spawn(move || { let reader = BufReader::new(stdout); for line in reader.lines().flatten() { let _ = app_out.emit("nmap-output", line); } }); }
 
     let app_err = app.clone();
-    if let Some(stderr) = child.stderr.take() {
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() { let _ = app_err.emit("nmap-output", line); }
-        });
-    }
+    if let Some(stderr) = child.stderr.take() { std::thread::spawn(move || { let reader = BufReader::new(stderr); for line in reader.lines().flatten() { let _ = app_err.emit("nmap-output", line); } }); }
 
     let status = child.wait().map_err(|e| e.to_string())?;
     state.0.store(0, Ordering::SeqCst);
@@ -331,20 +299,10 @@ async fn run_rustscan(app: AppHandle, state: State<'_, ScanProcess>, target: Str
     state.0.store(child.id(), Ordering::SeqCst);
 
     let app_out = app.clone();
-    if let Some(stdout) = child.stdout.take() {
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines().flatten() { let _ = app_out.emit("nmap-output", line); }
-        });
-    }
+    if let Some(stdout) = child.stdout.take() { std::thread::spawn(move || { let reader = BufReader::new(stdout); for line in reader.lines().flatten() { let _ = app_out.emit("nmap-output", line); } }); }
 
     let app_err = app.clone();
-    if let Some(stderr) = child.stderr.take() {
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() { let _ = app_err.emit("nmap-output", line); }
-        });
-    }
+    if let Some(stderr) = child.stderr.take() { std::thread::spawn(move || { let reader = BufReader::new(stderr); for line in reader.lines().flatten() { let _ = app_err.emit("nmap-output", line); } }); }
 
     let status = child.wait().map_err(|e| e.to_string())?;
     state.0.store(0, Ordering::SeqCst);
@@ -370,12 +328,14 @@ fn cancel_nmap(state: State<'_, ScanProcess>) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init()) 
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())  
         .plugin(tauri_plugin_fs::init())      
         .manage(ScanProcess(AtomicU32::new(0)))
         .manage(TerminalState { stdins: Mutex::new(HashMap::new()) })
-        .invoke_handler(tauri::generate_handler![run_nmap, run_rustscan, cancel_nmap, check_vpn, connect_vpn, disconnect_vpn, start_terminal, write_terminal, kill_terminal, get_network_interfaces])
+        // AÑADIDO SAVE_CLIPBOARD_IMAGE AL HANDLER
+        .invoke_handler(tauri::generate_handler![run_nmap, run_rustscan, cancel_nmap, check_vpn, connect_vpn, disconnect_vpn, start_terminal, write_terminal, kill_terminal, get_network_interfaces, run_fuzzer, save_clipboard_image])
         .run(tauri::generate_context!())
         .expect("Error Tauri");
 }

