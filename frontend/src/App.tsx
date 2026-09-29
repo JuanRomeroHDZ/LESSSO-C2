@@ -8,6 +8,7 @@ import { TopologyPanel } from './features/topology/TopologyPanel'
 import { NotesPanel } from './features/redteam/NotesPanel'
 import { WhiteboardPanel } from './features/redteam/WhiteboardPanel'
 import { NetcatTool, PayloadsTool, DecodersTool } from './features/toolbox/ToolboxPanel'
+import { MitrePanel } from './features/intel/MitrePanel'
 import { useScanStore } from './core/store/useScanStore'
 
 function VaultWorkspace() {
@@ -17,30 +18,15 @@ function VaultWorkspace() {
   const [secret, setSecret] = useState('');
   const [type, setType] = useState<'hash' | 'password' | 'key'>('password');
   const [notes, setNotes] = useState('');
-  
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
-  const handleAdd = () => {
-    if(target && secret) {
-      addVaultCred({ target, username, secret, type, notes });
-      setUsername(''); setSecret(''); setNotes('');
-    }
-  }
-
+  const handleAdd = () => { if(target && secret) { addVaultCred({ target, username, secret, type, notes }); setUsername(''); setSecret(''); setNotes(''); } }
   const exportVault = () => {
     const txt = vaultCredentials.map(c => `${c.target} | ${c.type.toUpperCase()} | ${c.username || 'N/A'} : ${c.secret}`).join('\n');
-    navigator.clipboard.writeText(txt);
-    alert('Credenciales copiadas al portapapeles.');
+    navigator.clipboard.writeText(txt); alert('Credenciales copiadas al portapapeles.');
   }
-
-  const toggleReveal = (id: string) => {
-    setRevealed(prev => ({ ...prev, [id]: !prev[id] }));
-  }
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    alert('Copiado al portapapeles!');
-  }
+  const toggleReveal = (id: string) => { setRevealed(prev => ({ ...prev, [id]: !prev[id] })); }
+  const copyToClipboard = (text: string) => { navigator.clipboard.writeText(text); alert('Copiado al portapapeles!'); }
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4">
@@ -48,13 +34,10 @@ function VaultWorkspace() {
         <h2 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase flex items-center"><span className="mr-2">🔐</span> Bóveda</h2>
         <button onClick={exportVault} className="px-2 py-1 bg-[#0b282c]/10 text-[#0b282c] dark:bg-[#0b282c]/50 dark:text-teal-400 text-[9px] font-bold rounded hover:bg-[#0b282c]/20 transition-colors">Exportar Txt</button>
       </div>
-      
       <div className="flex flex-col gap-2 mb-4 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
         <div className="flex gap-2">
            <input type="text" value={target} onChange={e=>setTarget(e.target.value)} placeholder="IP/Servicio" className="flex-1 px-2 py-1 text-[11px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded outline-none dark:text-white" />
-           <select value={type} onChange={e=>setType(e.target.value as any)} className="w-20 px-2 py-1 text-[11px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded outline-none dark:text-white">
-             <option value="password">Pass</option><option value="hash">Hash</option><option value="key">Key</option>
-           </select>
+           <select value={type} onChange={e=>setType(e.target.value as any)} className="w-20 px-2 py-1 text-[11px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded outline-none dark:text-white"><option value="password">Pass</option><option value="hash">Hash</option><option value="key">Key</option></select>
         </div>
         <input type="text" value={username} onChange={e=>setUsername(e.target.value)} placeholder="Usuario" className="w-full px-2 py-1 text-[11px] bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded outline-none dark:text-white" />
         <div className="flex gap-2">
@@ -62,12 +45,9 @@ function VaultWorkspace() {
            <button onClick={handleAdd} className="px-3 py-1 bg-[#0b282c] text-white text-[11px] font-bold rounded hover:bg-[#081e21]">+</button>
         </div>
       </div>
-
       <div className="flex-1 overflow-auto custom-scrollbar border border-slate-200 dark:border-slate-700 rounded-lg">
         <table className="w-full text-left text-[11px] text-slate-600 dark:text-slate-300">
-          <thead className="bg-slate-100 dark:bg-slate-800 uppercase font-bold text-[9px] text-slate-500">
-            <tr><th className="p-2">Data</th><th className="p-2 w-8"></th></tr>
-          </thead>
+          <thead className="bg-slate-100 dark:bg-slate-800 uppercase font-bold text-[9px] text-slate-500"><tr><th className="p-2">Data</th><th className="p-2 w-8"></th></tr></thead>
           <tbody>
             {vaultCredentials.map(c => (
               <tr key={c.id} className="border-t border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
@@ -75,9 +55,7 @@ function VaultWorkspace() {
                    <div className="font-bold">{c.target} <span className="text-[8px] font-normal uppercase bg-slate-200 dark:bg-slate-700 px-1 rounded ml-1">{c.type}</span></div>
                    <div className="text-slate-500">User: {c.username || '-'}</div>
                    <div className="flex items-center gap-2 mt-1">
-                     <div className="font-mono text-[#0b282c] dark:text-teal-400 break-all bg-teal-50 dark:bg-[#0b282c]/30 border border-teal-100 dark:border-[#0b282c]/50 px-1.5 py-0.5 rounded">
-                       {revealed[c.id] ? c.secret : '••••••••••••'}
-                     </div>
+                     <div className="font-mono text-[#0b282c] dark:text-teal-400 break-all bg-teal-50 dark:bg-[#0b282c]/30 border border-teal-100 dark:border-[#0b282c]/50 px-1.5 py-0.5 rounded">{revealed[c.id] ? c.secret : '••••••••••••'}</div>
                      <button onClick={() => toggleReveal(c.id)} className="text-slate-400 hover:text-[#0b282c] dark:hover:text-teal-400 transition-colors" title="Mostrar/Ocultar">👁️</button>
                      <button onClick={() => copyToClipboard(c.secret)} className="text-slate-400 hover:text-[#0b282c] dark:hover:text-teal-400 transition-colors" title="Copiar al portapapeles">📋</button>
                    </div>
@@ -94,73 +72,37 @@ function VaultWorkspace() {
 }
 
 export default function App() {
-  const [activeWorkspace, setActiveWorkspace] = useState<'recon' | 'topo' | 'arsenal' | 'cerebro'>('recon')
+  const [activeWorkspace, setActiveWorkspace] = useState<'recon' | 'topo' | 'arsenal' | 'cerebro' | 'intel'>('recon')
   const [cerebroTab, setCerebroTab] = useState<'notes' | 'whiteboard'>('notes')
   const [isTerminalOpen, setIsTerminalOpen] = useState(false)
   
-  const { 
-    target, setTarget, applyProfile, useRustScan, setField, copyMasterConfig, 
-    setParsedData, appendOutput, theme, toggleTheme, vpnIp, connectVpn, disconnectVpn, checkVpnStatus, volume, setVolume, soundEnabled, toggleSound,
-    isScanning, clearOutput, getNmapArgs, setScanDuration, notifyCompletion, cancelScan, autoSaveEnabled, toggleAutoSave
-  } = useScanStore()
-
+  const { target, setTarget, applyProfile, useRustScan, setField, copyMasterConfig, setParsedData, appendOutput, theme, toggleTheme, vpnIp, connectVpn, disconnectVpn, checkVpnStatus, volume, setVolume, soundEnabled, toggleSound, isScanning, clearOutput, getNmapArgs, setScanDuration, notifyCompletion, cancelScan, autoSaveEnabled, toggleAutoSave } = useScanStore()
   let scanTimeoutRef: ReturnType<typeof setTimeout> | null = null;
 
-  useEffect(() => {
-    checkVpnStatus();
-    const vpnInterval = setInterval(checkVpnStatus, 5000);
-    return () => clearInterval(vpnInterval);
-  }, [checkVpnStatus]);
-
+  useEffect(() => { checkVpnStatus(); const vpnInterval = setInterval(checkVpnStatus, 5000); return () => clearInterval(vpnInterval); }, [checkVpnStatus]);
   useEffect(() => {
     const unlistenData = listen<string>('nmap-structured-data', (event) => {
-      try {
-        const result = JSON.parse(event.payload);
-        setParsedData(result.hosts || []);
-        useScanStore.getState().syncWithBackend(useScanStore.getState().target, useScanStore.getState().scanDuration, result.hosts || []);
-      } catch (err) { appendOutput(`\n[SISTEMA] Error estructurando datos: ${err}`); }
+      try { const result = JSON.parse(event.payload); setParsedData(result.hosts || []); useScanStore.getState().syncWithBackend(useScanStore.getState().target, useScanStore.getState().scanDuration, result.hosts || []); } catch (err) { appendOutput(`\n[SISTEMA] Error estructurando datos: ${err}`); }
     })
     return () => { unlistenData.then(f => f()) }
   }, [setParsedData, appendOutput])
 
   const handleScan = async () => {
     if (!target) return;
-    setIsTerminalOpen(true);
-    useScanStore.getState().setIsScanning(true); 
-    clearOutput(); 
-    const startTime = Date.now();
-    
-    if (useRustScan) appendOutput('>>> Inicializando RUSTSCAN (Modo Ultra Rápido)...\n');
-    else appendOutput('>>> Inicializando Motor de Auditoría LESSSO C2 (NMAP)...\n');
-
-    if (!('__TAURI_INTERNALS__' in window)) {
-       appendOutput('\n[SISTEMA] ⚠️ ENTORNO WEB DETECTADO ⚠️\nLos navegadores bloquean la ejecución de binarios.\n');
-       useScanStore.getState().setIsScanning(false); return;
-    }
+    setIsTerminalOpen(true); useScanStore.getState().setIsScanning(true); clearOutput(); const startTime = Date.now();
+    if (useRustScan) appendOutput('>>> Inicializando RUSTSCAN (Modo Ultra Rápido)...\n'); else appendOutput('>>> Inicializando Motor de Auditoría LESSSO C2 (NMAP)...\n');
+    if (!('__TAURI_INTERNALS__' in window)) { appendOutput('\n[SISTEMA] ⚠️ ENTORNO WEB DETECTADO ⚠️\nLos navegadores bloquean la ejecución de binarios.\n'); useScanStore.getState().setIsScanning(false); return; }
     try {  
-      if (useRustScan) await invoke('run_rustscan', { target, nmapArgs: getNmapArgs() });
-      else await invoke('run_nmap', { target, args: getNmapArgs() });  
-
-      setScanDuration(`${((Date.now() - startTime) / 1000).toFixed(2)}s`);  
-      notifyCompletion();
-      const freshState = useScanStore.getState();
-      if (freshState.autoScanInterval > 0 && freshState.isScanning) {
-        appendOutput(`\n[MONITOR] Esperando ${freshState.autoScanInterval}s para el próximo escaneo...`);
-        scanTimeoutRef = setTimeout(handleScan, freshState.autoScanInterval * 1000);
-      } else { useScanStore.getState().setIsScanning(false); }
-    } catch (error) {  
-      appendOutput(`\n[ERROR DE SISTEMA]: ${error}`); useScanStore.getState().setIsScanning(false);  
-    }
+      if (useRustScan) await invoke('run_rustscan', { target, nmapArgs: getNmapArgs() }); else await invoke('run_nmap', { target, args: getNmapArgs() });  
+      setScanDuration(`${((Date.now() - startTime) / 1000).toFixed(2)}s`); notifyCompletion(); const freshState = useScanStore.getState();
+      if (freshState.autoScanInterval > 0 && freshState.isScanning) { appendOutput(`\n[MONITOR] Esperando ${freshState.autoScanInterval}s para el próximo escaneo...`); scanTimeoutRef = setTimeout(handleScan, freshState.autoScanInterval * 1000); } else { useScanStore.getState().setIsScanning(false); }
+    } catch (error) { appendOutput(`\n[ERROR DE SISTEMA]: ${error}`); useScanStore.getState().setIsScanning(false); }
   }
 
-  const stopEverything = () => {  
-    if (scanTimeoutRef) clearTimeout(scanTimeoutRef);  
-    setField('autoScanInterval', 0); cancelScan();  
-  }
+  const stopEverything = () => { if (scanTimeoutRef) clearTimeout(scanTimeoutRef); setField('autoScanInterval', 0); cancelScan(); }
 
   return (
     <div className={`${theme} flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-200 font-sans transition-colors duration-200 print:bg-white print:text-black`}>
-      
       <header className="h-14 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between px-4 shrink-0 print:hidden z-30 shadow-sm">
         <div className="flex items-center gap-4">
           <h1 className="font-['Poppins'] font-black text-2xl text-[#0b282c] dark:text-teal-400 tracking-wider flex items-center gap-2">
@@ -177,53 +119,37 @@ export default function App() {
             </div>
           </div>
         </div>
-        
         <div className="flex items-center gap-4">
-           <label className="flex items-center space-x-1.5 cursor-pointer bg-orange-50 dark:bg-orange-900/20 px-3 py-1.5 rounded-lg border border-orange-200 dark:border-orange-800/50 transition-colors hover:bg-orange-100 dark:hover:bg-orange-900/40">
-             <input type="checkbox" checked={useRustScan} onChange={() => setField('useRustScan', !useRustScan)} className="rounded text-orange-500 w-3.5 h-3.5 accent-orange-500" />
-             <span className="text-[11px] font-black uppercase text-orange-600 dark:text-orange-400 tracking-wide">⚡ RustScan</span>
-           </label>
-           
-           {isScanning ? (
-             <button onClick={stopEverything} className="bg-red-600 hover:bg-red-700 text-white font-black uppercase text-xs px-6 py-2 rounded-lg shadow-lg shadow-red-500/30 active:scale-95 transition-transform flex items-center gap-2"><span className="w-2 h-2 bg-white rounded-full animate-ping"></span>DETENER</button>
-           ) : (
-             <button onClick={handleScan} disabled={!target} className="bg-[#0b282c] disabled:bg-slate-400 dark:disabled:bg-slate-700 hover:bg-[#081e21] text-white font-black uppercase text-xs px-6 py-2 rounded-lg shadow-lg shadow-[#0b282c]/30 active:scale-95 disabled:active:scale-100 transition-transform tracking-wider">LANZAR AUDITORÍA</button>
-           )}
+           <label className="flex items-center space-x-1.5 cursor-pointer bg-orange-50 dark:bg-orange-900/20 px-3 py-1.5 rounded-lg border border-orange-200 dark:border-orange-800/50 transition-colors hover:bg-orange-100 dark:hover:bg-orange-900/40"><input type="checkbox" checked={useRustScan} onChange={() => setField('useRustScan', !useRustScan)} className="rounded text-orange-500 w-3.5 h-3.5 accent-orange-500" /><span className="text-[11px] font-black uppercase text-orange-600 dark:text-orange-400 tracking-wide">⚡ RustScan</span></label>
+           {isScanning ? <button onClick={stopEverything} className="bg-red-600 hover:bg-red-700 text-white font-black uppercase text-xs px-6 py-2 rounded-lg shadow-lg shadow-red-500/30 active:scale-95 transition-transform flex items-center gap-2"><span className="w-2 h-2 bg-white rounded-full animate-ping"></span>DETENER</button> : <button onClick={handleScan} disabled={!target} className="bg-[#0b282c] disabled:bg-slate-400 dark:disabled:bg-slate-700 hover:bg-[#081e21] text-white font-black uppercase text-xs px-6 py-2 rounded-lg shadow-lg shadow-[#0b282c]/30 active:scale-95 disabled:active:scale-100 transition-transform tracking-wider">LANZAR AUDITORÍA</button>}
            <button onClick={copyMasterConfig} title="Copiar Config JSON" className="text-slate-400 hover:text-[#0b282c] dark:hover:text-teal-400 transition-colors p-2"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
            <button onClick={toggleTheme} className="text-slate-400 hover:text-[#0b282c] dark:hover:text-teal-400 transition-colors p-2">{theme === 'light' ? '🌙' : '☀️'}</button>
         </div>
       </header>
 
       <div className="flex flex-1 overflow-hidden min-h-0 relative print:h-auto print:overflow-visible">
-        
         <aside className="w-16 shrink-0 bg-slate-100 dark:bg-slate-900/50 border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-4 z-20 print:hidden gap-4">
             <button onClick={() => setActiveWorkspace('recon')} title="Reconocimiento (Nmap/Dashboard)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'recon' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📊</span></button>
             <button onClick={() => setActiveWorkspace('topo')} title="Topología de Red" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'topo' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🕸️</span></button>
             <button onClick={() => setActiveWorkspace('arsenal')} title="Arsenal (Netcat, Payloads, Hashes)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'arsenal' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧰</span></button>
             <button onClick={() => setActiveWorkspace('cerebro')} title="Cerebro (Bóveda y Bitácora)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'cerebro' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧠</span></button>
+            <button onClick={() => setActiveWorkspace('intel')} title="Threat Intelligence (MITRE ATT&CK)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'intel' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📖</span></button>
         </aside>
 
         <main className="flex-1 flex flex-col min-w-0 print:h-auto print:overflow-visible">
-            
             {activeWorkspace === 'recon' && (
               <div className="flex flex-1 overflow-hidden print:block print:overflow-visible">
                 <div className="w-[320px] border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 overflow-y-auto shrink-0 print:hidden"><ScanConfig /></div>
                 <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50 dark:bg-slate-950 print:p-0"><DashboardPanel /></div>
               </div>
             )}
-
             {activeWorkspace === 'topo' && <div className="flex-1 p-4"><TopologyPanel /></div>}
-
             {activeWorkspace === 'arsenal' && (
               <div className="flex flex-1 overflow-hidden">
-                <div className="w-[320px] border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 overflow-y-auto flex flex-col shrink-0">
-                   <div className="h-1/2 overflow-y-auto border-b border-slate-200 dark:border-slate-800"><PayloadsTool /></div>
-                   <div className="h-1/2 overflow-y-auto"><DecodersTool /></div>
-                </div>
+                <div className="w-[320px] border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 overflow-y-auto flex flex-col shrink-0"><div className="h-1/2 overflow-y-auto border-b border-slate-200 dark:border-slate-800"><PayloadsTool /></div><div className="h-1/2 overflow-y-auto"><DecodersTool /></div></div>
                 <div className="flex-1 bg-slate-950 p-2"><NetcatTool /></div>
               </div>
             )}
-
             {activeWorkspace === 'cerebro' && (
               <div className="flex flex-1 overflow-hidden">
                 <div className="w-[350px] shrink-0 overflow-y-auto bg-slate-50 dark:bg-slate-950"><VaultWorkspace /></div>
@@ -232,45 +158,27 @@ export default function App() {
                      <button onClick={() => setCerebroTab('notes')} className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors border border-b-0 ${cerebroTab === 'notes' ? 'bg-white dark:bg-slate-900 text-[#0b282c] dark:text-teal-400 border-slate-200 dark:border-slate-800 relative top-[1px]' : 'bg-transparent border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>📝 Bitácora</button>
                      <button onClick={() => setCerebroTab('whiteboard')} className={`px-4 py-2 text-xs font-bold uppercase rounded-t-lg transition-colors border border-b-0 ${cerebroTab === 'whiteboard' ? 'bg-white dark:bg-slate-900 text-[#0b282c] dark:text-teal-400 border-slate-200 dark:border-slate-800 relative top-[1px]' : 'bg-transparent border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>🎨 Pizarra Gráfica</button>
                    </div>
-                   <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-                     {cerebroTab === 'notes' ? <NotesPanel /> : <WhiteboardPanel />}
-                   </div>
+                   <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">{cerebroTab === 'notes' ? <NotesPanel /> : <WhiteboardPanel />}</div>
                 </div>
               </div>
             )}
-
-            {(activeWorkspace === 'recon' || activeWorkspace === 'topo') && (
-              <div className={`border-t border-slate-300 dark:border-slate-700 bg-[#0b1120] transition-all duration-300 shrink-0 print:hidden ${isTerminalOpen ? 'h-[30vh]' : 'h-0 hidden'}`}>
-                <TerminalPanel />
+            {activeWorkspace === 'intel' && (
+              <div className="flex-1 flex overflow-hidden bg-slate-100 dark:bg-slate-950">
+                <div className="w-full h-full mx-auto max-w-6xl"><MitrePanel /></div>
               </div>
+            )}
+            {(activeWorkspace === 'recon' || activeWorkspace === 'topo') && (
+              <div className={`border-t border-slate-300 dark:border-slate-700 bg-[#0b1120] transition-all duration-300 shrink-0 print:hidden ${isTerminalOpen ? 'h-[30vh]' : 'h-0 hidden'}`}><TerminalPanel /></div>
             )}
         </main>
       </div>
 
       <footer className="h-7 bg-[#0b282c] text-white flex items-center justify-between px-3 text-[10px] font-bold shrink-0 print:hidden z-50">
+        <div className="flex items-center gap-4"><span className="flex items-center gap-1.5" title="Sistema Operativo Nativamente Integrado"><div className="w-2 h-2 bg-teal-400 rounded-full animate-pulse"></div> LESSSO C2 READY</span><div className="w-px h-4 bg-teal-700"></div><button onClick={() => setIsTerminalOpen(!isTerminalOpen)} className="hover:text-teal-200 transition-colors flex items-center gap-1 cursor-pointer"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 17l6-6-6-6M12 19h8"></path></svg> TERMINAL NMAP {isTerminalOpen ? '▼' : '▲'}</button></div>
         <div className="flex items-center gap-4">
-           <span className="flex items-center gap-1.5" title="Sistema Operativo Nativamente Integrado"><div className="w-2 h-2 bg-teal-400 rounded-full animate-pulse"></div> LESSSO C2 READY</span>
-           <div className="w-px h-4 bg-teal-700"></div>
-           <button onClick={() => setIsTerminalOpen(!isTerminalOpen)} className="hover:text-teal-200 transition-colors flex items-center gap-1 cursor-pointer">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 17l6-6-6-6M12 19h8"></path></svg> 
-              TERMINAL NMAP {isTerminalOpen ? '▼' : '▲'}
-           </button>
-        </div>
-        
-        <div className="flex items-center gap-4">
-           <button onClick={toggleAutoSave} className="flex items-center gap-1 hover:text-teal-200 transition-colors" title="El estado de la app se guarda en disco local al instante.">
-             {autoSaveEnabled ? '💾 AUTO-GUARDADO ON' : '⚠️ AUTO-GUARDADO OFF'}
-           </button>
-           
-           <div className="flex items-center gap-1.5 bg-[#081e21] px-2 py-0.5 rounded border border-[#144249]" title="Ajustar Volumen de Alertas">
-              <button onClick={toggleSound} className="hover:scale-110 transition-transform text-teal-400">{soundEnabled ? '🔊' : '🔇'}</button>
-              <input type="range" min="0" max="100" step="1" value={volume} onChange={(e) => setVolume(parseInt(e.target.value))} className="w-16 h-1 accent-teal-400 appearance-none bg-[#144249] rounded-lg cursor-pointer" />
-           </div>
-
-           <button onClick={vpnIp ? disconnectVpn : connectVpn} className={`px-2 py-0.5 rounded flex items-center gap-1.5 transition-colors ${vpnIp ? 'bg-emerald-600 hover:bg-red-500 text-white' : 'bg-red-600 hover:bg-red-500 text-white'}`} title={vpnIp ? "Clic para Desconectar de la red de HTB" : "Clic para Conectar usando archivo .ovpn"}>
-              <span className={`w-1.5 h-1.5 rounded-full ${vpnIp ? 'bg-white animate-pulse' : 'bg-white'}`}></span>
-              {vpnIp ? `HTB: ${vpnIp} (DISCONNECT)` : 'VPN OFFLINE (CONNECT)'}
-           </button>
+           <button onClick={toggleAutoSave} className="flex items-center gap-1 hover:text-teal-200 transition-colors" title="El estado de la app se guarda en disco local al instante.">{autoSaveEnabled ? '💾 AUTO-GUARDADO ON' : '⚠️ AUTO-GUARDADO OFF'}</button>
+           <div className="flex items-center gap-1.5 bg-[#081e21] px-2 py-0.5 rounded border border-[#144249]" title="Ajustar Volumen de Alertas"><button onClick={toggleSound} className="hover:scale-110 transition-transform text-teal-400">{soundEnabled ? '🔊' : '🔇'}</button><input type="range" min="0" max="100" step="1" value={volume} onChange={(e) => setVolume(parseInt(e.target.value))} className="w-16 h-1 accent-teal-400 appearance-none bg-[#144249] rounded-lg cursor-pointer" /></div>
+           <button onClick={vpnIp ? disconnectVpn : connectVpn} className={`px-2 py-0.5 rounded flex items-center gap-1.5 transition-colors ${vpnIp ? 'bg-emerald-600 hover:bg-red-500 text-white' : 'bg-red-600 hover:bg-red-500 text-white'}`} title={vpnIp ? "Clic para Desconectar de la red de HTB" : "Clic para Conectar usando archivo .ovpn"}><span className={`w-1.5 h-1.5 rounded-full ${vpnIp ? 'bg-white animate-pulse' : 'bg-white'}`}></span>{vpnIp ? `HTB: ${vpnIp} (DISCONNECT)` : 'VPN OFFLINE (CONNECT)'}</button>
         </div>
       </footer>
     </div>
