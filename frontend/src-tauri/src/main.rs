@@ -70,8 +70,17 @@ async fn check_vpn() -> Result<String, String> {
 
 #[tauri::command]
 async fn connect_vpn(ovpn_path: String) -> Result<(), String> {
+    // RESOLUCIÓN DINÁMICA: Buscamos la ruta absoluta de OpenVPN para satisfacer la seguridad de pkexec.
+    let openvpn_exe = if std::path::Path::new("/usr/sbin/openvpn").exists() {
+        "/usr/sbin/openvpn"
+    } else if std::path::Path::new("/usr/bin/openvpn").exists() {
+        "/usr/bin/openvpn"
+    } else {
+        "openvpn" // Fallback
+    };
+
     let output = Command::new("pkexec")
-        .arg("openvpn")
+        .arg(openvpn_exe)
         .arg("--config")
         .arg(&ovpn_path)
         .arg("--daemon")
@@ -87,9 +96,16 @@ async fn connect_vpn(ovpn_path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn disconnect_vpn() -> Result<(), String> {
+    // RESOLUCIÓN DINÁMICA: Buscamos la ruta absoluta de killall
+    let killall_exe = if std::path::Path::new("/usr/bin/killall").exists() {
+        "/usr/bin/killall"
+    } else {
+        "/bin/killall"
+    };
+
     let mut child = Command::new("sh")
         .arg("-c")
-        .arg("pkexec killall openvpn || sudo killall openvpn || killall openvpn")
+        .arg(format!("pkexec {} openvpn || sudo {} openvpn || killall openvpn", killall_exe, killall_exe))
         .spawn()
         .map_err(|e| format!("Error cerrando VPN: {}", e))?;
     

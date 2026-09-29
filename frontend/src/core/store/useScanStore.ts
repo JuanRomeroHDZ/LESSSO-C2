@@ -120,7 +120,6 @@ export const useScanStore = create<ScanState>()(
           console.error(e);
           let errorMsg = e.toString();
           
-          // Detección inteligente del fallo del sistema
           if (errorMsg.includes("DEPENDENCY_MISSING") || errorMsg.includes("os error 2")) {
             errorMsg = "Falta el administrador de políticas gráficas 'pkexec' en tu sistema Linux.\n\nPara solucionarlo, abre tu terminal y ejecuta:\n\nsudo apt install pkexec";
           }
