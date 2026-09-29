@@ -9,6 +9,7 @@ import { NotesPanel } from './features/redteam/NotesPanel'
 import { WhiteboardPanel } from './features/redteam/WhiteboardPanel'
 import { NetcatTool, PayloadsTool, DecodersTool } from './features/toolbox/ToolboxPanel'
 import { MitrePanel } from './features/intel/MitrePanel'
+import { FuzzingPanel } from './features/fuzzing/FuzzingPanel'
 import { useScanStore } from './core/store/useScanStore'
 
 function VaultWorkspace() {
@@ -72,7 +73,8 @@ function VaultWorkspace() {
 }
 
 export default function App() {
-  const [activeWorkspace, setActiveWorkspace] = useState<'recon' | 'topo' | 'arsenal' | 'cerebro' | 'intel'>('recon')
+  // AÑADIDO 'fuzz' A LOS WORKSPACES
+  const [activeWorkspace, setActiveWorkspace] = useState<'recon' | 'topo' | 'fuzz' | 'arsenal' | 'cerebro' | 'intel'>('recon')
   const [cerebroTab, setCerebroTab] = useState<'notes' | 'whiteboard'>('notes')
   const [isTerminalOpen, setIsTerminalOpen] = useState(false)
   
@@ -131,6 +133,10 @@ export default function App() {
         <aside className="w-16 shrink-0 bg-slate-100 dark:bg-slate-900/50 border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-4 z-20 print:hidden gap-4">
             <button onClick={() => setActiveWorkspace('recon')} title="Reconocimiento (Nmap/Dashboard)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'recon' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📊</span></button>
             <button onClick={() => setActiveWorkspace('topo')} title="Topología de Red" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'topo' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🕸️</span></button>
+            
+            {/* BOTÓN DEL FUZZER */}
+            <button onClick={() => setActiveWorkspace('fuzz')} title="Web Fuzzer Visualizer" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'fuzz' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🌐</span></button>
+            
             <button onClick={() => setActiveWorkspace('arsenal')} title="Arsenal (Netcat, Payloads, Hashes)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'arsenal' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧰</span></button>
             <button onClick={() => setActiveWorkspace('cerebro')} title="Cerebro (Bóveda y Bitácora)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'cerebro' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧠</span></button>
             <button onClick={() => setActiveWorkspace('intel')} title="Threat Intelligence (MITRE ATT&CK)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'intel' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📖</span></button>
@@ -143,7 +149,16 @@ export default function App() {
                 <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50 dark:bg-slate-950 print:p-0"><DashboardPanel /></div>
               </div>
             )}
+            
             {activeWorkspace === 'topo' && <div className="flex-1 p-4"><TopologyPanel /></div>}
+            
+            {/* WORKSPACE: FUZZING */}
+            {activeWorkspace === 'fuzz' && (
+              <div className="flex-1 p-4 bg-slate-100 dark:bg-slate-950 overflow-hidden">
+                <div className="h-full mx-auto max-w-7xl"><FuzzingPanel /></div>
+              </div>
+            )}
+
             {activeWorkspace === 'arsenal' && (
               <div className="flex flex-1 overflow-hidden">
                 <div className="w-[320px] border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 overflow-y-auto flex flex-col shrink-0"><div className="h-1/2 overflow-y-auto border-b border-slate-200 dark:border-slate-800"><PayloadsTool /></div><div className="h-1/2 overflow-y-auto"><DecodersTool /></div></div>

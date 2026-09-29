@@ -14,7 +14,8 @@ interface ScanState {
   theme: 'light' | 'dark'; target: string; scanType: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping'; timing: number;
   excludeTargets: string; topPorts: string; customPorts: string; fastMode: boolean;
   discoveryMode: string; minRate: string; maxRetries: string; networkInterface: string;   
-  aggressiveMode: boolean; traceroute: boolean; reason: boolean; packetTrace: boolean; minParallelism: string; maxParallelism: string; dnsResolution: string; hostTimeout: string; scanDelay: string;    
+  aggressiveMode: boolean; traceroute: boolean; reason: boolean; packetTrace: boolean; minParallelism: string; maxParallelism: string; dnsResolution: string; hostTimeout: string; scanDelay: string; 
+    
   useOSDetection: boolean; maxOsTries: string; useServiceDetection: boolean; versionIntensity: string;
   useIPv6: boolean; scanAllPorts: boolean; nseCategory: string; nseArgs: string; isVerbose: boolean;
   evasionFrag: boolean; evasionMTU: string; evasionDecoy: string; evasionMac: string; evasionSourcePort: string; evasionSpoofIp: string; badsum: boolean; randomizeHosts: boolean; zombieIp: string; ftpBounce: string;   
@@ -36,7 +37,7 @@ interface ScanState {
   volume: number;
   soundEnabled: boolean;
   autoSaveEnabled: boolean;
-  availableInterfaces: string[]; 
+  availableInterfaces: string[];  
 
   toggleTheme: () => void; setTarget: (t: string) => void; setScanType: (t: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping') => void; setTiming: (t: number) => void; setDiscoveryMode: (m: string) => void; setField: (f: keyof ScanState, v: any) => void;
   toggleOSDetection: () => void; toggleServiceDetection: () => void; toggleIPv6: () => void; toggleAllPorts: () => void; toggleVerbose: () => void; setNseCategory: (c: string) => void; setNseArgs: (a: string) => void; setCommandString: (c: string) => void;
@@ -45,9 +46,9 @@ interface ScanState {
   
   addVaultCred: (cred: Omit<VaultCred, 'id'>) => void; removeVaultCred: (id: string) => void;
 
-  checkVpnStatus: () => Promise<void>; connectVpn: () => Promise<void>; 
+  checkVpnStatus: () => Promise<void>; connectVpn: () => Promise<void>;  
   disconnectVpn: () => Promise<void>;
-  fetchInterfaces: () => Promise<void>; 
+  fetchInterfaces: () => Promise<void>;  
   
   setVolume: (v: number) => void;
   toggleSound: () => void;
@@ -103,15 +104,29 @@ export const useScanStore = create<ScanState>()(
       },
 
       connectVpn: async () => {
-        const { ovpnPath } = get();
-        if (!ovpnPath) {
-          const selected = await open({ filters: [{ name: 'OpenVPN', extensions: ['ovpn', 'conf'] }] });
-          if (selected && !Array.isArray(selected)) {
-            set({ ovpnPath: selected });
-            await invoke('connect_vpn', { ovpnPath: selected });
+        try {
+          const { ovpnPath } = get();
+          if (!ovpnPath) {
+            const selected = await open({ filters: [{ name: 'OpenVPN', extensions: ['ovpn', 'conf'] }] });
+            if (selected && !Array.isArray(selected)) {
+              set({ ovpnPath: selected });
+              await invoke('connect_vpn', { ovpnPath: selected });
+            }
+          } else {
+            await invoke('connect_vpn', { ovpnPath });
           }
-        } else {
-          await invoke('connect_vpn', { ovpnPath });
+          setTimeout(() => get().checkVpnStatus(), 2000);
+        } catch (e: any) {
+          console.error(e);
+          let errorMsg = e.toString();
+          
+          // Detección inteligente del fallo del sistema
+          if (errorMsg.includes("DEPENDENCY_MISSING") || errorMsg.includes("os error 2")) {
+            errorMsg = "Falta el administrador de políticas gráficas 'pkexec' en tu sistema Linux.\n\nPara solucionarlo, abre tu terminal y ejecuta:\n\nsudo apt install pkexec";
+          }
+          
+          alert(`⚠️ No se pudo conectar a la VPN:\n\n${errorMsg}`);
+          set({ ovpnPath: '' }); 
         }
       },
 
@@ -120,9 +135,9 @@ export const useScanStore = create<ScanState>()(
           await invoke('disconnect_vpn');
           set({ vpnIp: null });
           setTimeout(() => set({ vpnIp: null }), 2500);
-        } catch (e: any) { 
-          console.error(e); 
-          alert(`No se pudo desconectar la VPN.\nDetalle: ${e}`);
+        } catch (e: any) {  
+          console.error(e);  
+          alert(`⚠️ No se pudo desconectar la VPN.\nDetalle: ${e}`);
         }
       },
 
@@ -139,7 +154,7 @@ export const useScanStore = create<ScanState>()(
         else if (s.scanAllPorts && s.scanType !== 'ping') cmd.push('-p-');
 
         if (s.discoveryMode) cmd.push(s.discoveryMode);
-        if (s.minRate) cmd.push(`--min-rate ${s.minRate}`); if (s.maxRetries) cmd.push(`--max-retries ${s.maxRetries}`); if (s.minParallelism) cmd.push(`--min-parallelism ${s.minParallelism}`); if (s.maxParallelism) cmd.push(`--max-parallelism ${s.maxParallelism}`); if (s.minHostgroup) cmd.push(`--min-hostgroup ${s.minHostgroup}`); if (s.maxHostgroup) cmd.push(`--max-hostgroup ${s.maxHostgroup}`); if (s.hostTimeout) cmd.push(`--host-timeout ${s.hostTimeout}`); if (s.scanDelay) cmd.push(`--scan-delay ${s.scanDelay}`); 
+        if (s.minRate) cmd.push(`--min-rate ${s.minRate}`); if (s.maxRetries) cmd.push(`--max-retries ${s.maxRetries}`); if (s.minParallelism) cmd.push(`--min-parallelism ${s.minParallelism}`); if (s.maxParallelism) cmd.push(`--max-parallelism ${s.maxParallelism}`); if (s.minHostgroup) cmd.push(`--min-hostgroup ${s.minHostgroup}`); if (s.maxHostgroup) cmd.push(`--max-hostgroup ${s.maxHostgroup}`); if (s.hostTimeout) cmd.push(`--host-timeout ${s.hostTimeout}`); if (s.scanDelay) cmd.push(`--scan-delay ${s.scanDelay}`);  
         if (s.networkInterface) cmd.push(`-e ${s.networkInterface}`); if (s.aggressiveMode) cmd.push('-A'); if (s.traceroute) cmd.push('--traceroute'); if (s.reason) cmd.push('--reason'); if (s.packetTrace) cmd.push('--packet-trace'); if (s.dnsResolution) cmd.push(s.dnsResolution); if (s.proxies) cmd.push(`--proxies ${s.proxies}`); if (s.customDns) cmd.push(`--dns-servers ${s.customDns}`); if (s.customTcpFlags && s.scanType !== 'ping') cmd.push(`--scanflags ${s.customTcpFlags.toUpperCase()}`); if (s.dataString && s.scanType !== 'ping') cmd.push(`--data-string "${s.dataString}"`); if (s.dataHex && s.scanType !== 'ping') cmd.push(`--data ${s.dataHex}`); if (s.dataLength && s.scanType !== 'ping') cmd.push(`--data-length ${s.dataLength}`);
 
         if (s.nmapOutputFormat && s.nmapOutputPrefix) {
@@ -154,7 +169,6 @@ export const useScanStore = create<ScanState>()(
         }
         if (s.isVerbose) cmd.push('-v'); if (s.target) cmd.push(s.target);
         
-        // CORRECCIÓN SINTAXIS APLICADA AQUÍ: Se cambió \vert{}\vert{} por ||
         const cleanNmapArgs = cmd.join(' ').replace('nmap ', '').replace(s.target, '').trim();
         const finalCommand = s.useRustScan ? `rustscan -a ${s.target || '<IP>'} -b 4500 --accessible -- ${cleanNmapArgs}` : cmd.join(' ');
         set({ commandString: finalCommand });
@@ -193,31 +207,31 @@ export const useScanStore = create<ScanState>()(
       updateHost: (ip, u) => set((s) => ({ parsedData: s.parsedData.map(h => h.ip === ip ? { ...h, ...u } : h) })),  
       setProgressText: (t) => set({ progressText: t }), setScanDuration: (d) => set({ scanDuration: d }),  
       
-      cancelScan: async () => { 
-        try { 
+      cancelScan: async () => {  
+        try {  
           if (!('__TAURI_INTERNALS__' in window)) {
             set({ isScanning: false, progressText: '' });
             get().appendOutput('\n[!] DETENIDO (Modo Web Simulacro).');
             return;
           }
-          await invoke('cancel_nmap'); 
-          set({ isScanning: false, progressText: '' }); 
-          get().appendOutput('\n[!] DETENIDO POR EL USUARIO.'); 
-        } catch (e) { console.error(e); } 
+          await invoke('cancel_nmap');  
+          set({ isScanning: false, progressText: '' });  
+          get().appendOutput('\n[!] DETENIDO POR EL USUARIO.');  
+        } catch (e) { console.error(e); }  
       },
       
       playAudioAlert: () => {
-        if (!get().soundEnabled) return; 
+        if (!get().soundEnabled) return;  
         const vol = get().volume;
-        if (vol <= 0) return; 
+        if (vol <= 0) return;  
         try {
           const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
           const osc = ctx.createOscillator(); const gain = ctx.createGain();
           osc.connect(gain); gain.connect(ctx.destination);
-          osc.type = 'sine'; osc.frequency.value = 880;  
+          osc.type = 'sine'; osc.frequency.value = 880;   
           gain.gain.setValueAtTime(vol / 100, ctx.currentTime);
           osc.start(); osc.stop(ctx.currentTime + 0.3);
-        } catch (e) {}  
+        } catch (e) {}   
       },
 
       notifyCompletion: async () => {
@@ -238,22 +252,22 @@ export const useScanStore = create<ScanState>()(
       importWorkspace: (data) => set({ parsedData: data, historyData: [] }),
 
       getNmapArgs: () => {
-        const baseString = get().commandString.includes('rustscan') 
-            ? get().commandString.replace(/rustscan -a \S+ -b \d+ --accessible -- /, '') 
+        const baseString = get().commandString.includes('rustscan')  
+            ? get().commandString.replace(/rustscan -a \S+ -b \d+ --accessible -- /, '')  
             : get().commandString.replace('nmap ', '');
-            
+             
         let args = baseString.replace(get().target, '').trim()
             .split(/\s+(?=(?:[^'"]*['"][^'"]*['"])*[^'"]*$)/)
             .map(s => s.replace(/(^["']|["']$)/g, ''))
             .filter(p => p !== '');
 
         if (!args.includes('--privileged')) args.unshift('--privileged');
-        if (!args.includes('--stats-every=5s')) args.push('--stats-every=5s');  
+        if (!args.includes('--stats-every=5s')) args.push('--stats-every=5s');   
         return args;
       },
 
       syncWithBackend: async (target: string, scanDuration: string, data: HostInfo[]) => {
-        if (!get().autoSaveEnabled) return; 
+        if (!get().autoSaveEnabled) return;  
         try {
           const response = await fetch('http://localhost:8001/api/scans', {
             method: 'POST',
@@ -269,7 +283,7 @@ export const useScanStore = create<ScanState>()(
     }),
     {
       name: 'lessso-c2-storage',
-      partialize: (state) => state.autoSaveEnabled ? {  
+      partialize: (state) => state.autoSaveEnabled ? {   
         vaultCredentials: state.vaultCredentials,
         parsedData: state.parsedData,
         historyData: state.historyData,

@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "JuanMap",
+  "productName": "LESSSO C2",
   "version": "0.1.0",
   "identifier": "com.juanmap.desktop",
   "build": {
@@ -12,9 +12,9 @@
   "app": {
     "windows": [
       {
-        "title": "JuanMap",
-        "width": 800,
-        "height": 600,
+        "title": "LESSSO C2 - Red Team Workspace",
+        "width": 1024,
+        "height": 768,
         "resizable": true,
         "fullscreen": false
       }
@@ -33,6 +33,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "nmap",
+          "openvpn",
+          "pkexec"
+        ]
+      }
+    },
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }

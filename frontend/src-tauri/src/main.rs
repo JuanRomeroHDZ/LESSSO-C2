@@ -38,7 +38,7 @@ async fn get_network_interfaces() -> Result<Vec<String>, String> {
                 let parts: Vec<&str> = line.split(':').collect();
                 if parts.len() > 1 {
                     let iface_name = parts[1].trim();
-                    if !iface_name.starts_with("lo") { 
+                    if !iface_name.starts_with("lo") {  
                         interfaces.push(iface_name.to_string());
                     }
                 }
@@ -70,21 +70,26 @@ async fn check_vpn() -> Result<String, String> {
 
 #[tauri::command]
 async fn connect_vpn(ovpn_path: String) -> Result<(), String> {
-    Command::new("/usr/bin/pkexec")
-        .arg("/usr/sbin/openvpn")
+    let output = Command::new("pkexec")
+        .arg("openvpn")
         .arg("--config")
         .arg(&ovpn_path)
         .arg("--daemon")
-        .spawn()
-        .map_err(|e| format!("Error lanzando VPN: {}", e))?;
+        .output()
+        .map_err(|e| format!("DEPENDENCY_MISSING: {}", e))?;
+
+    if !output.status.success() {
+        let err_msg = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Autenticación cancelada o fallo de OpenVPN:\n{}", err_msg));
+    }
     Ok(())
 }
 
 #[tauri::command]
 async fn disconnect_vpn() -> Result<(), String> {
-    let mut child = Command::new("/bin/sh")
+    let mut child = Command::new("sh")
         .arg("-c")
-        .arg("/usr/bin/pkexec /usr/bin/killall openvpn || /usr/bin/pkexec /usr/bin/pkill openvpn")
+        .arg("pkexec killall openvpn || sudo killall openvpn || killall openvpn")
         .spawn()
         .map_err(|e| format!("Error cerrando VPN: {}", e))?;
     
@@ -288,9 +293,9 @@ async fn run_nmap(app: AppHandle, state: State<'_, ScanProcess>, target: String,
             Err(e) => { let _ = app.emit("nmap-output", format!("\n[ADVERTENCIA PARSEO]: {}", e)); }
         }
         Ok(())
-    } else {  
+    } else {   
         let _ = std::fs::remove_file(xml_path_str);
-        Err("Cancelado o con errores.".into())  
+        Err("Cancelado o con errores.".into())   
     }
 }
 
@@ -303,8 +308,6 @@ async fn run_rustscan(app: AppHandle, state: State<'_, ScanProcess>, target: Str
     let xml_path_str = xml_path.to_str().unwrap();
 
     let mut cmd = Command::new("rustscan");
-    // CORRECCIÓN MAGISTRAL: Le inyectamos "--accessible" a rustscan. 
-    // Esto desactiva el molesto ASCII Art de colores y la barra de progreso que congelaba React.
     cmd.arg("-a").arg(&target).arg("-b").arg("4500").arg("--accessible").arg("--");
     cmd.args(nmap_args).arg("-oX").arg(xml_path_str).stdout(Stdio::piped()).stderr(Stdio::piped());
     
@@ -337,9 +340,9 @@ async fn run_rustscan(app: AppHandle, state: State<'_, ScanProcess>, target: Str
             Err(e) => { let _ = app.emit("nmap-output", format!("\n[ADVERTENCIA PARSEO]: {}", e)); }
         }
         Ok(())
-    } else {  
+    } else {   
         let _ = std::fs::remove_file(xml_path_str);
-        Err("Cancelado o con errores de permisos.".into())  
+        Err("Cancelado o con errores de permisos.".into())   
     }
 }
 
@@ -352,8 +355,8 @@ fn cancel_nmap(state: State<'_, ScanProcess>) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_dialog::init()) 
-        .plugin(tauri_plugin_fs::init())     
+        .plugin(tauri_plugin_dialog::init())  
+        .plugin(tauri_plugin_fs::init())      
         .manage(ScanProcess(AtomicU32::new(0)))
         .manage(TerminalState { stdins: Mutex::new(HashMap::new()) })
         .invoke_handler(tauri::generate_handler![run_nmap, run_rustscan, cancel_nmap, check_vpn, connect_vpn, disconnect_vpn, start_terminal, write_terminal, kill_terminal, get_network_interfaces])
