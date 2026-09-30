@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, Component, type ReactNode } from 'react'
+import { useEffect, useRef, useState, useCallback, Component, type ReactNode, memo } from 'react'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { Terminal } from '@xterm/xterm'
@@ -18,6 +18,24 @@ function newSessionId(): string {
   const rand = Math.random().toString(36).slice(2, 8);
   return `${SESSION_PREFIX}${Date.now()}-${sessionCounter}-${rand}`;
 }
+
+// ==========================================
+// GUARD GLOBAL ANTI-DOBLE-SPAWN
+// ----------------------------------------------------------
+// React 19 + StrictMode monta/desmonta/monta cada componente
+// en desarrollo para detectar side effects. Sin este guard,
+// cada pestaña lanza DOS `start_terminal` (dos `script`, dos
+// bash, dos PTYs).
+//
+// Los refs de instancia NO sirven porque se pierden entre
+// montajes. Este Set vive a nivel de módulo: si la sesión ya
+// fue arrancada, no la volvemos a arrancar.
+//
+// En producción (sin StrictMode) no molesta: cada sesión se
+// arranca una vez, se registra, y nunca se repite el mismo ID
+// (los IDs llevan contador + random).
+// ==========================================
+const startedSessions = new Set<string>();
 
 // ==========================================
 // 0. ERROR BOUNDARY POR TAB
@@ -120,33 +138,51 @@ interface BashTabInstanceProps {
   autoLog: boolean;
 }
 
-function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: BashTabInstanceProps) {
+const BashTabInstance = memo(function BashTabInstance({
+  sessionId,
+  isActive,
+  onRemove,
+  autoLog,
+}: BashTabInstanceProps) {
   const termRef = useRef<HTMLDivElement>(null);
   const terminalInstance = useRef<Terminal | null>(null);
   const unlistenFuncs = useRef<UnlistenFn[]>([]);
   const sessionLog = useRef<string[]>([]);
   const killedRef = useRef(false);
+  const removedRef = useRef(false);
 
   const killAndClose = useCallback(async () => {
-    if (killedRef.current) return;
-    killedRef.current = true;
+    if (removedRef.current) return;
+    removedRef.current = true;
 
-    try {
-      await invoke('kill_terminal', { sessionId });
-    } catch (err) {
-      console.warn('[BashTab] kill_terminal falló (no crítico):', err);
-    }
+    // Backend: matar el process group. No bloqueamos la UI:
+    // si tarda >400ms, seguimos adelante (kill_sweep limpiará).
+    const killPromise = invoke('kill_terminal', { sessionId }).catch((err) => {
+      console.warn('[BashTab] kill_terminal falló:', err);
+    });
+    const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 400));
+    await Promise.race([killPromise, timeoutPromise]);
 
+    // Auto-log de evidencia
     if (autoLog && sessionLog.current.length > 0) {
-      const blob = new Blob([sessionLog.current.join('\n')], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `lessso_bash_evidencia_${sessionId}.log`;
-      a.click();
-      URL.revokeObjectURL(url);
+      try {
+        const blob = new Blob([sessionLog.current.join('\n')], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `lessso_bash_evidencia_${sessionId}.log`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.warn('[BashTab] auto-log falló:', e);
+      }
     }
 
+    // Limpiamos el guard de arranque para que si el usuario reabre
+    // la misma sesión (no debería, pero por si acaso) pueda arrancar.
+    startedSessions.delete(sessionId);
+
+    // SIEMPRE quitamos la pestaña del estado.
     onRemove(sessionId);
   }, [sessionId, autoLog, onRemove]);
 
@@ -194,10 +230,27 @@ function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: BashTabInst
         invoke('write_terminal', { sessionId, data }).catch(() => {});
       });
 
+      // ──────────────────────────────────────────────────────
+      // GUARD anti-doble-spawn (StrictMode en dev).
+      // A nivel de módulo: si ya arrancamos esta sesión, no la
+      // volvemos a arrancar aunque React remonte el componente.
+      // ──────────────────────────────────────────────────────
+      if (startedSessions.has(sessionId)) {
+        console.debug('[BashTab] start_terminal ya lanzado, skip remount:', sessionId);
+        return;
+      }
+      startedSessions.add(sessionId);
+
       try {
-        await invoke('start_terminal', { sessionId, cmd: '/bin/bash', args: ['-i'] });
+        await invoke('start_terminal', {
+          sessionId,
+          cmd: '/usr/bin/script',
+          args: ['-qfc', '/bin/bash -i', '/dev/null'],
+        });
       } catch (err) {
         term.writeln(`\r\n\x1b[1;31m[ERR] Error del Sistema: ${err}\x1b[0m`);
+        // Si falló, liberamos el guard para permitir reintentos.
+        startedSessions.delete(sessionId);
       }
 
       const resizeHandler = () => {
@@ -220,8 +273,9 @@ function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: BashTabInst
       });
       unlistenFuncs.current = [];
 
-      if (!killedRef.current) {
+      if (!killedRef.current && !removedRef.current) {
         killedRef.current = true;
+        startedSessions.delete(sessionId);
         invoke('kill_terminal', { sessionId }).catch(() => {});
       }
 
@@ -259,7 +313,7 @@ function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: BashTabInst
       <div ref={termRef} className="flex-1 w-full h-full p-2 bg-[#0b1120] overflow-hidden" />
     </div>
   );
-}
+});
 
 // ==========================================
 // 3. COMPONENTE PRINCIPAL: TERMINAL PANEL
