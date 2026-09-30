@@ -7,7 +7,6 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-  // Configuraciones recomendadas por Tauri para Vite
   clearScreen: false,
   server: {
     port: 5173,
@@ -19,13 +18,13 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('zustand')) return 'vendor';
-            if (id.includes('recharts') || id.includes('reactflow') || id.includes('@uiw/react-md-editor')) return 'ui_heavy';
-            if (id.includes('xterm')) return 'terminal';
-            return 'vendor_other';
+            if (id.includes('react') || id.includes('zustand')) return 'vendor'
+            if (id.includes('recharts') || id.includes('reactflow') || id.includes('@uiw/react-md-editor')) return 'ui_heavy'
+            if (id.includes('xterm')) return 'terminal'
+            return 'vendor_other'
           }
-        }
-      }
-    }
-  }
+        },
+      },
+    },
+  },
 })
