@@ -34,11 +34,9 @@ libc = "0.2"
 # Seguridad — Sprint 2
 argon2 = "0.5"
 zeroize = { version = "1.8", features = ["derive"] }
-hex = "0.4"
 
 # Clipboard nativo (WebKitGTK no expone el paste al DOM)
 arboard = "3.4"
-which = "6.0"
 
 # Procesamiento de imágenes (BMP → PNG real)
 image = { version = "0.25", default-features = false, features = ["png", "bmp"] }

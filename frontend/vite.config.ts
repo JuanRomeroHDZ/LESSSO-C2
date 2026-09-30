@@ -14,4 +14,15 @@ export default defineConfig({
     strictPort: true,
   },
   envPrefix: ['VITE_', 'TAURI_'],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'zustand'],
+          ui_heavy: ['recharts', 'reactflow', '@uiw/react-md-editor'],
+          terminal: ['@xterm/xterm', '@xterm/addon-fit']
+        }
+      }
+    }
+  }
 })

@@ -1,6 +1,25 @@
-fastapi
-uvicorn[standard]
-pydantic
-sqlalchemy
-asyncpg
-redis
+# ==========================================================
+# LESSSO C2 — Backend Dependencies
+# ----------------------------------------------------------
+# FastAPI + SQLAlchemy async + PostgreSQL + Redis
+# ==========================================================
+
+# --- Web framework ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# --- Validation / schemas ---
+pydantic>=2.9.0
+
+# --- Database (async) ---
+# ⚠ CRÍTICO: usamos el extra [asyncio] porque SQLAlchemy
+#   async requiere greenlet para funcionar.
+#   Sin este extra, falla con:
+#     ModuleNotFoundError: No module named 'greenlet'
+sqlalchemy[asyncio]>=2.0.36
+
+# --- Async PostgreSQL driver ---
+asyncpg>=0.30.0
+
+# --- Cache / message broker ---
+redis>=5.2.0

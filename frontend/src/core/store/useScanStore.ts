@@ -3,12 +3,24 @@ import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
+import { DEFAULT_PLACEHOLDERS, type ArsenalPlaceholders } from '../data/arsenal-types'
+import {
+  setVaultPassword,
+  getVaultPassword,
+  hasVaultPassword,
+  clearVaultSession,
+} from './vaultSession'
 
 export interface ScriptInfo { id: string; output: string; }
 export interface PortInfo { portid: string; protocol: string; state: string; reason: string; service: string; version: string; scripts?: ScriptInfo[]; }
 export interface HostInfo { ip: string; hostname?: string; alias?: string; mac: string; mac_vendor: string; status: string; os: string; ports: PortInfo[]; tags?: string[]; notes?: string; scripts?: ScriptInfo[]; }
 export interface SavedProfile { id: string; name: string; config: Partial<ScanState>; }
 export interface VaultCred { id: string; target: string; type: 'hash' | 'password' | 'key'; username: string; secret: string; notes: string; }
+
+// ==========================================================
+// Estado del backend FastAPI
+// ==========================================================
+export type BackendStatus = 'online' | 'offline' | 'unknown';
 
 interface ScanState {
   theme: 'light' | 'dark'; target: string; scanType: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping'; timing: number;
@@ -28,11 +40,7 @@ interface ScanState {
   nmapOutputFormat: string; nmapOutputPrefix: string; nmapOutputDir: string;
 
   // =============================
-  // BÓVEDA Y SEGURIDAD (Sprint 2)
-  // =============================
-  // - SIN masterPasswordHash (hash débil eliminado)
-  // - La pwd se valida descifrando encryptedVaultData
-  // - encryptedVaultData es el único dato persistido de la bóveda
+  // BÓVEDA Y SEGURIDAD (Sprint 2 — hardened)
   // =============================
   vaultCredentials: VaultCred[];
   encryptedVaultData: string;
@@ -41,8 +49,36 @@ interface ScanState {
   unlockVault: (pwd: string) => Promise<boolean>;
   lockVault: () => void;
   setMasterPassword: (pwd: string) => Promise<void>;
-  addVaultCred: (cred: Omit<VaultCred, 'id'>, currentPwd?: string) => Promise<void>;
-  removeVaultCred: (id: string, currentPwd?: string) => Promise<void>;
+  addVaultCred: (cred: Omit<VaultCred, 'id'>) => Promise<void>;
+  removeVaultCred: (id: string) => Promise<void>;
+  // =============================
+
+  // =============================
+  // ARSENAL (Sprint Arsenal — híbrido A+C)
+  // =============================
+  arsenalSelectedId: string | null;
+  arsenalPinnedIds: string[];
+  arsenalRecentIds: string[];
+  arsenalPlaceholders: ArsenalPlaceholders;
+
+  setArsenalSelected: (id: string | null) => void;
+  toggleArsenalPin: (id: string) => void;
+  pushArsenalRecent: (id: string) => void;
+  setArsenalPlaceholder: <K extends keyof ArsenalPlaceholders>(key: K, value: ArsenalPlaceholders[K]) => void;
+  resetArsenalPlaceholders: () => void;
+  clearArsenalRecent: () => void;
+  // =============================
+
+  // =============================
+  // BACKEND STATUS (bug #6)
+  // =============================
+  backendStatus: BackendStatus;
+  backendIsPinging: boolean;
+  backendLastError: string | null;
+  backendLastSyncAt: number | null;
+
+  setBackendStatus: (status: BackendStatus, error?: string | null) => void;
+  pingBackend: () => Promise<boolean>;
   // =============================
 
   redTeamNotes: string; setRedTeamNotes: (notes: string) => void;
@@ -74,8 +110,6 @@ function normalizeTarget(raw: string): string {
 
 // ==========================================================
 // HELPER: construye el array de args de Nmap (fuente de verdad)
-// El backend Tauri añade SIEMPRE -oX <temp> al final.
-// Aquí nunca se incluye -oN/-oG/-oX/-oA ni el target.
 // ==========================================================
 function buildNmapArgs(s: ScanState): string[] {
   const args: string[] = [];
@@ -154,7 +188,6 @@ function buildNmapArgs(s: ScanState): string[] {
 
 // ==========================================================
 // HELPER: genera el comando string SOLO para visualización.
-// Es 100% cosmético, no se usa para ejecutar.
 // ==========================================================
 function buildCommandString(s: ScanState, nmapArgs: string[]): string {
   const targetPart = s.target ? ` ${s.target}` : '';
@@ -164,6 +197,11 @@ function buildCommandString(s: ScanState, nmapArgs: string[]): string {
   return `nmap ${nmapArgs.join(' ')}${targetPart}`;
 }
 
+// ==========================================================
+// CONSTANTE: endpoint del backend
+// ==========================================================
+const BACKEND_URL = 'http://localhost:8001';
+
 export const useScanStore = create<ScanState>()(
   persist(
     (set, get) => ({
@@ -171,29 +209,160 @@ export const useScanStore = create<ScanState>()(
       commandString: 'nmap -sS -T4', isScanning: false, output: [], parsedData: [], historyData: [], progressText: '', scanDuration: '0s', savedProfiles: [], autoScanInterval: 0, zenMode: false, compactMode: false, quickNotesOpen: false,
       onlyOpenPorts: false, osScanGuess: false, scriptDefault: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'lessso_scan', nmapOutputDir: '',
 
-      // BÓVEDA CIFRADA (Sprint 2 — sin masterPasswordHash)
+      // BÓVEDA CIFRADA (Sprint 2 — hardened)
       vaultCredentials: [],
       encryptedVaultData: '',
       isVaultUnlocked: false,
 
       // ==========================================================
-      // setMasterPassword: crea la bóveda desde cero.
-      // Cifra el estado actual (vacío) y guarda el blob.
-      // Ya NO genera ni guarda masterPasswordHash.
+      // ARSENAL — estado inicial
       // ==========================================================
-      setMasterPassword: async (pwd: string) => {
+      arsenalSelectedId: null,
+      arsenalPinnedIds: [],
+      arsenalRecentIds: [],
+      arsenalPlaceholders: { ...DEFAULT_PLACEHOLDERS },
+
+      setArsenalSelected: (id) => set({ arsenalSelectedId: id }),
+
+      toggleArsenalPin: (id) => {
         const s = get();
-        const toEncrypt = JSON.stringify(s.vaultCredentials);
-        const encrypted = await invoke<string>('encrypt_vault', { data: toEncrypt, password: pwd });
-        set({ encryptedVaultData: encrypted, isVaultUnlocked: true });
+        const isPinned = s.arsenalPinnedIds.includes(id);
+        set({
+          arsenalPinnedIds: isPinned
+            ? s.arsenalPinnedIds.filter(x => x !== id)
+            : [...s.arsenalPinnedIds, id],
+        });
+      },
+
+      pushArsenalRecent: (id) => {
+        const s = get();
+        const filtered = s.arsenalRecentIds.filter(x => x !== id);
+        const recent = [id, ...filtered].slice(0, 10);
+        set({ arsenalRecentIds: recent });
+      },
+
+      setArsenalPlaceholder: (key, value) => {
+        const s = get();
+        set({
+          arsenalPlaceholders: { ...s.arsenalPlaceholders, [key]: value },
+        });
+      },
+
+      resetArsenalPlaceholders: () => {
+        set({ arsenalPlaceholders: { ...DEFAULT_PLACEHOLDERS } });
+      },
+
+      clearArsenalRecent: () => set({ arsenalRecentIds: [] }),
+
+      // ==========================================================
+      // BACKEND STATUS — estado inicial
+      // ==========================================================
+      backendStatus: 'unknown',
+      backendIsPinging: false,
+      backendLastError: null,
+      backendLastSyncAt: null,
+
+      setBackendStatus: (status, error = null) => {
+        set({
+          backendStatus: status,
+          backendLastError: error,
+          ...(status === 'online' ? { backendLastSyncAt: Date.now() } : {}),
+        });
       },
 
       // ==========================================================
-      // unlockVault: valida la pwd intentando DESCIFRAR.
-      // Si `decrypt_vault` devuelve error → pwd incorrecta → false.
-      // Si devuelve JSON válido → desbloquea → true.
-      // Ya NO compara ningún hash débil.
+      // pingBackend: comprueba si el backend está vivo
       // ==========================================================
+      pingBackend: async () => {
+        if (get().backendIsPinging) return false;
+
+        set({ backendIsPinging: true });
+        const previousStatus = get().backendStatus;
+
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+          const response = await fetch(`${BACKEND_URL}/`, {
+            method: 'GET',
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            get().setBackendStatus('online');
+            // Solo logueamos cuando cambia el estado (evita spam cada 30s)
+            if (previousStatus !== 'online') {
+              get().appendOutput('\n[SISTEMA] ✅ Backend verificado: ONLINE');
+            }
+            set({ backendIsPinging: false });
+            return true;
+          }
+
+          const errorMsg = `HTTP ${response.status} ${response.statusText}`;
+          get().setBackendStatus('offline', errorMsg);
+          if (previousStatus !== 'offline') {
+            get().appendOutput(`\n[SISTEMA] ⚠ Backend respondió con error: ${errorMsg}`);
+          }
+          set({ backendIsPinging: false });
+          return false;
+        } catch (err) {
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          const isAbort = err instanceof Error && err.name === 'AbortError';
+
+          let friendlyMsg: string;
+          if (isAbort) {
+            friendlyMsg = 'Timeout (el backend tardó >3s en responder)';
+          } else if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError')) {
+            friendlyMsg = 'No se pudo conectar (¿backend apagado?)';
+          } else if (rawMsg.includes('Connection refused')) {
+            friendlyMsg = 'Conexión rechazada (¿backend no está corriendo?)';
+          } else {
+            friendlyMsg = rawMsg;
+          }
+
+          get().setBackendStatus('offline', friendlyMsg);
+          if (previousStatus !== 'offline') {
+            get().appendOutput(`\n[SISTEMA] ❌ Backend OFFLINE: ${friendlyMsg}`);
+          }
+          set({ backendIsPinging: false });
+          return false;
+        }
+      },
+
+      // ==========================================================
+      // BÓVEDA CIFRADA (Sprint 2 — hardened)
+      // ----------------------------------------------------------
+      // La contraseña vive en vaultSession.ts (módulo cerrado),
+      // NO en el estado de Zustand ni en React.
+      //
+      // setMasterPassword / unlockVault guardan la pwd en el
+      // módulo cerrado. addVaultCred / removeVaultCred la leen
+      // de ahí. lockVault la borra.
+      //
+      // Estrategia de cifrado: cifrar PRIMERO, actualizar el
+      // estado SOLO si el cifrado tuvo éxito. Así nunca quedan
+      // memoria y disco desincronizados.
+      // ==========================================================
+
+      setMasterPassword: async (pwd: string) => {
+        const s = get();
+        const toEncrypt = JSON.stringify(s.vaultCredentials);
+
+        const encrypted = await invoke<string>('encrypt_vault', {
+          data: toEncrypt,
+          password: pwd,
+        });
+
+        setVaultPassword(pwd);
+
+        set({
+          encryptedVaultData: encrypted,
+          isVaultUnlocked: true,
+        });
+      },
+
       unlockVault: async (pwd: string) => {
         const s = get();
         if (!s.encryptedVaultData) {
@@ -205,66 +374,74 @@ export const useScanStore = create<ScanState>()(
             encryptedData: s.encryptedVaultData,
             password: pwd,
           });
+
           const creds = JSON.parse(decrypted) as VaultCred[];
-          set({ vaultCredentials: creds, isVaultUnlocked: true });
+
+          setVaultPassword(pwd);
+
+          set({
+            vaultCredentials: creds,
+            isVaultUnlocked: true,
+          });
           return true;
         } catch (e) {
-          console.error('unlockVault: descifrado falló (pwd incorrecta o datos corruptos)', e);
+          console.error('unlockVault: descifrado falló', e);
           return false;
         }
       },
 
-      // ==========================================================
-      // lockVault: limpia las credenciales de memoria.
-      // El blob cifrado sigue en disco para volver a desbloquear.
-      // ==========================================================
       lockVault: () => {
-        set({ vaultCredentials: [], isVaultUnlocked: false });
+        clearVaultSession();
+        set({
+          vaultCredentials: [],
+          isVaultUnlocked: false,
+        });
       },
 
-      // ==========================================================
-      // addVaultCred: añade credencial y re-cifra el blob completo.
-      // Ya NO chequea masterPasswordHash. Solo que haya blob.
-      // ==========================================================
-      addVaultCred: async (cred, currentPwd) => {
+      addVaultCred: async (cred) => {
         const s = get();
-        if (!currentPwd) {
-          console.error('addVaultCred: falta la contraseña para re-cifrar');
-          return;
+
+        if (!hasVaultPassword()) {
+          throw new Error('Bóveda bloqueada o sin contraseña en sesión');
         }
-        const newCreds = [...s.vaultCredentials, { ...cred, id: Date.now().toString() }];
-        set({ vaultCredentials: newCreds });
-        try {
-          const encrypted = await invoke<string>('encrypt_vault', {
-            data: JSON.stringify(newCreds),
-            password: currentPwd,
-          });
-          set({ encryptedVaultData: encrypted });
-        } catch (e) {
-          console.error('addVaultCred: fallo al re-cifrar la bóveda', e);
-        }
+
+        const pwd = getVaultPassword()!;
+        const newCreds = [
+          ...s.vaultCredentials,
+          { ...cred, id: Date.now().toString() },
+        ];
+
+        // Cifrar primero; si falla, el estado queda intacto
+        const encrypted = await invoke<string>('encrypt_vault', {
+          data: JSON.stringify(newCreds),
+          password: pwd,
+        });
+
+        set({
+          vaultCredentials: newCreds,
+          encryptedVaultData: encrypted,
+        });
       },
 
-      // ==========================================================
-      // removeVaultCred: elimina credencial y re-cifra el blob.
-      // ==========================================================
-      removeVaultCred: async (id, currentPwd) => {
+      removeVaultCred: async (id) => {
         const s = get();
-        if (!currentPwd) {
-          console.error('removeVaultCred: falta la contraseña para re-cifrar');
-          return;
+
+        if (!hasVaultPassword()) {
+          throw new Error('Bóveda bloqueada o sin contraseña en sesión');
         }
+
+        const pwd = getVaultPassword()!;
         const newCreds = s.vaultCredentials.filter(c => c.id !== id);
-        set({ vaultCredentials: newCreds });
-        try {
-          const encrypted = await invoke<string>('encrypt_vault', {
-            data: JSON.stringify(newCreds),
-            password: currentPwd,
-          });
-          set({ encryptedVaultData: encrypted });
-        } catch (e) {
-          console.error('removeVaultCred: fallo al re-cifrar la bóveda', e);
-        }
+
+        const encrypted = await invoke<string>('encrypt_vault', {
+          data: JSON.stringify(newCreds),
+          password: pwd,
+        });
+
+        set({
+          vaultCredentials: newCreds,
+          encryptedVaultData: encrypted,
+        });
       },
 
       redTeamNotes: '',
@@ -300,10 +477,6 @@ export const useScanStore = create<ScanState>()(
 
       disconnectVpn: async () => { try { await invoke('disconnect_vpn'); set({ vpnIp: null }); setTimeout(() => set({ vpnIp: null }), 2500); } catch (e: any) { alert(`⚠ No se pudo desconectar la VPN.\nDetalle: ${e}`); } },
 
-      // ==========================================================
-      // syncCommandString: SOLO actualiza commandString (cosmético).
-      // NUNCA incluye -oN/-oG/-oX/-oA (eso lo controla el backend).
-      // ==========================================================
       syncCommandString: () => {
         const s = get();
         const nmapArgs = buildNmapArgs(s);
@@ -368,9 +541,6 @@ export const useScanStore = create<ScanState>()(
 
       importWorkspace: (data) => set({ parsedData: data, historyData: [] }),
 
-      // ==========================================================
-      // getNmapArgs: devuelve el array EXACTO de args para el backend.
-      // ==========================================================
       getNmapArgs: () => {
         const s = get();
         const args = buildNmapArgs(s);
@@ -380,20 +550,70 @@ export const useScanStore = create<ScanState>()(
         return args;
       },
 
+      // ==========================================================
+      // syncWithBackend: SINCRONIZA CON EL BACKEND FASTAPI
+      // ==========================================================
       syncWithBackend: async (target: string, scanDuration: string, data: HostInfo[]) => {
         if (!get().autoSaveEnabled) return;
+
         try {
-          const response = await fetch('http://localhost:8001/api/scans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target, scan_duration: scanDuration, hosts: data }), });
-          if (response.ok) get().appendOutput('\n[SISTEMA] Datos sincronizados con LESSSO Backend exitosamente.');
-        } catch (err) {}
-      }
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+          const response = await fetch(`${BACKEND_URL}/api/scans`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              target,
+              scan_duration: scanDuration,
+              hosts: data,
+            }),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            get().setBackendStatus('online');
+            get().appendOutput('\n[SISTEMA] ✅ Datos sincronizados con LESSSO Backend exitosamente.');
+          } else {
+            const errorMsg = `HTTP ${response.status} ${response.statusText}`;
+            get().setBackendStatus('offline', errorMsg);
+            get().appendOutput(`\n[SISTEMA] ⚠ Error sincronizando con backend: ${errorMsg}`);
+            console.warn('[syncWithBackend] Backend respondió con error:', errorMsg);
+          }
+        } catch (err) {
+          const rawMsg = err instanceof Error ? err.message : String(err);
+          const isAbort = err instanceof Error && err.name === 'AbortError';
+
+          let friendlyMsg: string;
+          if (isAbort) {
+            friendlyMsg = 'Timeout (el backend tardó >5s en responder)';
+          } else if (rawMsg.includes('Failed to fetch') || rawMsg.includes('NetworkError')) {
+            friendlyMsg = 'No se pudo conectar (¿backend apagado?)';
+          } else if (rawMsg.includes('Connection refused')) {
+            friendlyMsg = 'Conexión rechazada (¿backend no está corriendo?)';
+          } else {
+            friendlyMsg = rawMsg;
+          }
+
+          get().setBackendStatus('offline', friendlyMsg);
+          get().appendOutput(
+            `\n[SISTEMA] ⚠ No se pudo sincronizar con el backend (${friendlyMsg}). ` +
+            `Los datos siguen guardados localmente.`
+          );
+          console.warn('[syncWithBackend] Fallo de conexión:', friendlyMsg);
+        }
+      },
     }),
     {
       name: 'lessso-c2-storage',
       // ==========================================================
       // partialize: qué se persiste en localStorage.
-      // Sprint 2: ya NO se guarda `masterPasswordHash`.
-      // Solo se guarda el blob cifrado de la bóveda.
+      // ----------------------------------------------------------
+      // SEGURIDAD: encryptedVaultData SÍ se persiste (es seguro),
+      // pero la contraseña maestra vive en vaultSession.ts y
+      // NUNCA pasa por aquí.
       // ==========================================================
       partialize: (state) => state.autoSaveEnabled ? {
         encryptedVaultData: state.encryptedVaultData,
@@ -401,9 +621,28 @@ export const useScanStore = create<ScanState>()(
         historyData: state.historyData,
         redTeamNotes: state.redTeamNotes,
         redTeamWhiteboard: state.redTeamWhiteboard,
-        savedProfiles: state.savedProfiles
-        // OJO: NI `masterPasswordHash` NI `vaultCredentials` se guardan.
-      } : {},
+        savedProfiles: state.savedProfiles,
+        // Arsenal — persistencia
+        arsenalPinnedIds: state.arsenalPinnedIds,
+        arsenalRecentIds: state.arsenalRecentIds,
+        arsenalPlaceholders: state.arsenalPlaceholders,
+        // Backend status — persistencia (último estado conocido)
+        backendStatus: state.backendStatus,
+        // Preferencias de UI
+        theme: state.theme,
+        autoSaveEnabled: state.autoSaveEnabled,
+        volume: state.volume,
+        soundEnabled: state.soundEnabled,
+        compactMode: state.compactMode,
+      } : {
+        // Aunque autosave esté OFF, mantenemos las preferencias
+        // básicas para no perder la configuración de la UI.
+        theme: state.theme,
+        autoSaveEnabled: state.autoSaveEnabled,
+        volume: state.volume,
+        soundEnabled: state.soundEnabled,
+        compactMode: state.compactMode,
+      },
     }
   )
 )

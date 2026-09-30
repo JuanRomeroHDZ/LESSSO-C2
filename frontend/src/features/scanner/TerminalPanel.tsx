@@ -26,8 +26,8 @@ const ColorizeLine = ({ line }: { line: string }) => {
           if (part.match(/^\d+\/(tcp|udp|sctp)/)) return <span key={i} className="text-sky-400 font-bold">{part}</span>;
           if (part === 'open') return <span key={i} className="text-emerald-400 font-bold">{part}</span>;
           if (part === 'closed' || part === 'filtered') return <span key={i} className="text-orange-400">{part}</span>;
-          if (i === 4 && part.trim() !== '') return <span key={i} className="text-pink-400">{part}</span>;  
-          return <span key={i} className="text-slate-400">{part}</span>;  
+          if (i === 4 && part.trim() !== '') return <span key={i} className="text-pink-400">{part}</span>;
+          return <span key={i} className="text-slate-400">{part}</span>;
         })}
       </span>
     );
@@ -53,10 +53,10 @@ function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: { sessionId
     const terminalInstance = useRef<Terminal | null>(null);
     const unlistenFuncs = useRef<UnlistenFn[]>([]);
     const sessionLog = useRef<string[]>([]);
-  
+
     const killAndClose = useCallback(async () => {
       await invoke('kill_terminal', { sessionId });
-      
+
       // AUTO-LOGGING DE EVIDENCIA BASH
       if (autoLog && sessionLog.current.length > 0) {
           const blob = new Blob([sessionLog.current.join('\n')], { type: "text/plain" });
@@ -66,7 +66,7 @@ function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: { sessionId
       }
       onRemove(sessionId);
     }, [sessionId, autoLog, onRemove]);
-  
+
     useEffect(() => {
       let isMounted = true;
       const initTerminal = async () => {
@@ -77,34 +77,34 @@ function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: { sessionId
         term.open(termRef.current);
         fitAddon.fit();
         terminalInstance.current = term;
-  
+
         term.writeln(`\x1b[1;36m[*] LESSSO C2 - Terminal Activa (ID: ${sessionId.slice(-4)})\x1b[0m`);
-  
+
         const unlistenOut = await listen<string>(`term-output-${sessionId}`, (e) => {
           if (!isMounted) return;
-          sessionLog.current.push(e.payload); // Guardamos para la evidencia
+          sessionLog.current.push(e.payload);
           term.write(e.payload.replace(/\n/g, '\r\n'));
         });
-        
+
         const unlistenExit = await listen(`term-exit-${sessionId}`, () => {
           if (!isMounted) return;
           term.writeln('\r\n\x1b[1;33m[*] Proceso finalizado.\x1b[0m');
         });
-  
+
         unlistenFuncs.current.push(unlistenOut, unlistenExit);
         term.onData(data => { invoke('write_terminal', { sessionId, data }).catch(() => {}); });
-        
+
         try {
           await invoke('start_terminal', { sessionId, cmd: '/bin/bash', args: ['-i'] });
         } catch (err) {
           term.writeln(`\r\n\x1b[1;31m[!] Error del Sistema: ${err}\x1b[0m`);
         }
-  
+
         const resizeHandler = () => fitAddon.fit();
         window.addEventListener('resize', resizeHandler);
         unlistenFuncs.current.push(() => window.removeEventListener('resize', resizeHandler));
       };
-  
+
       initTerminal();
       return () => {
         isMounted = false;
@@ -112,13 +112,25 @@ function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: { sessionId
         invoke('kill_terminal', { sessionId }).catch(()=>{});
       };
     }, [sessionId]);
-  
+
     return (
       <div className={`flex-1 flex-col h-full ${isActive ? 'flex' : 'hidden'}`}>
         <div className="bg-slate-800 border-b border-slate-700 flex justify-between p-1.5 shrink-0 items-center">
             <div className="flex gap-2">
-                <button onClick={() => invoke('write_terminal', { sessionId, data: '\x03' })} className="bg-red-900/50 hover:bg-red-600 text-red-200 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm transition-colors border border-red-500/30" title="Interrumpir proceso actual (Manda la señal Ctrl+C por ti)">Ctrl+C (Kill)</button>
-                <button onClick={() => invoke('write_terminal', { sessionId, data: '\x1A' })} className="bg-orange-900/50 hover:bg-orange-600 text-orange-200 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm transition-colors border border-orange-500/30" title="Pausar proceso y mandarlo a background (Manda Ctrl+Z)">Ctrl+Z (Bg)</button>
+                <button
+                  onClick={() => invoke('send_terminal_signal', { sessionId, signalName: 'SIGINT' })}
+                  className="bg-red-900/50 hover:bg-red-600 text-red-200 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm transition-colors border border-red-500/30"
+                  title="Interrumpir proceso actual (SIGINT al process group)"
+                >
+                  Ctrl+C (Kill)
+                </button>
+                <button
+                  onClick={() => invoke('send_terminal_signal', { sessionId, signalName: 'SIGTSTP' })}
+                  className="bg-orange-900/50 hover:bg-orange-600 text-orange-200 hover:text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm transition-colors border border-orange-500/30"
+                  title="Pausar proceso (SIGTSTP al process group)"
+                >
+                  Ctrl+Z (Bg)
+                </button>
             </div>
             <button onClick={killAndClose} className="text-[10px] font-bold uppercase text-slate-400 hover:text-red-400 pr-2">Cerrar Sesión ✕</button>
         </div>
@@ -134,17 +146,15 @@ export function TerminalPanel() {
   const { output, appendOutput, setIsScanning, commandString, progressText, setProgressText, isScanning, clearOutput } = useScanStore()
   const terminalEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  
+
   const [autoScroll, setAutoScroll] = useState(true)
-  const [searchGrep, setSearchGrep] = useState('')  
+  const [searchGrep, setSearchGrep] = useState('')
   const [copied, setCopied] = useState(false)
-  
-  // SISTEMA MULTI-TAB Y AUTO-LOG
+
   const [activeTab, setActiveTab] = useState<'scanner' | string>('scanner');
   const [bashTabs, setBashTabs] = useState<{id: string, name: string}[]>([]);
   const [autoLogEnabled, setAutoLogEnabled] = useState(false);
 
-  // AUTO-LOGGING DEL ESCÁNER (Cuando termina y AutoLog está activo)
   useEffect(() => {
      if (!isScanning && output.length > 0 && autoLogEnabled) {
          exportRawLog(true);
@@ -199,13 +209,13 @@ export function TerminalPanel() {
         if (line.trim().length > 2) appendOutput(line);
       }
     })
-    
+
     const unlistenFinished = listen<string>('nmap-finished', (event) => {
       appendOutput(`\n${event.payload}`);
       setIsScanning(false);
       setProgressText('Auditoría Finalizada');
     })
-    
+
     return () => { unlistenOutput.then(f => f()); unlistenFinished.then(f => f()); }
   }, [appendOutput, setIsScanning, setProgressText])
 
@@ -215,12 +225,12 @@ export function TerminalPanel() {
     <section className="flex flex-col h-full min-h-0 bg-[#0b1120] relative border-t-2 border-[#144249]">
         {/* BARRA DE PESTAÑAS Y CONTROLES GENERALES */}
         <div className="bg-slate-950 flex justify-between items-center pr-2 shrink-0 shadow-md relative z-10">
-           
+
            <div className="flex overflow-x-auto custom-scrollbar">
               <button onClick={() => setActiveTab('scanner')} className={`px-4 py-2 text-[10px] font-bold uppercase transition-colors whitespace-nowrap flex items-center gap-2 ${activeTab === 'scanner' ? 'bg-[#0b1120] text-emerald-400 border-t-2 border-emerald-500' : 'text-slate-500 hover:bg-slate-900 border-t-2 border-transparent'}`}>
                  <span className={`h-2 w-2 rounded-full ${isScanning ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`}></span> SCANNER NMAP
               </button>
-              
+
               {bashTabs.map(tab => (
                  <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 text-[10px] font-bold uppercase transition-colors whitespace-nowrap flex items-center gap-2 border-r border-slate-800 ${activeTab === tab.id ? 'bg-[#0b1120] text-teal-400 border-t-2 border-teal-500' : 'text-slate-500 hover:bg-slate-900 border-t-2 border-transparent'}`}>
                     ▶ {tab.name}
@@ -255,8 +265,8 @@ export function TerminalPanel() {
             </div>
 
             <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap scroll-smooth relative custom-scrollbar">
-                {filteredOutput.length > 0  
-                ? filteredOutput.map((line, i) => <ColorizeLine key={i} line={line} />)  
+                {filteredOutput.length > 0
+                ? filteredOutput.map((line, i) => <ColorizeLine key={i} line={line} />)
                 : <span className="text-slate-600">Terminal inactiva. Esperando comandos de LESSSO C2...</span>
                 }
                 <div ref={terminalEndRef} />
@@ -267,7 +277,7 @@ export function TerminalPanel() {
             )}
         </div>
 
-        {/* CONTENEDORES DE LAS PESTAÑAS BASH (Renderizados en paralelo para no perder el estado Xterm) */}
+        {/* CONTENEDORES DE LAS PESTAÑAS BASH */}
         {bashTabs.map(tab => (
            <BashTabInstance key={tab.id} sessionId={tab.id} isActive={activeTab === tab.id} onRemove={removeBashTab} autoLog={autoLogEnabled} />
         ))}

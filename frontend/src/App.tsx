@@ -7,7 +7,7 @@ import { DashboardPanel } from './features/dashboard/DashboardPanel'
 import { TopologyPanel } from './features/topology/TopologyPanel'
 import { NotesPanel } from './features/redteam/NotesPanel'
 import { WhiteboardPanel } from './features/redteam/WhiteboardPanel'
-import { NetcatTool, PayloadsTool, DecodersTool } from './features/toolbox/ToolboxPanel'
+import { ArsenalLayout } from './features/toolbox/ArsenalLayout'
 import { MitrePanel } from './features/intel/MitrePanel'
 import { FuzzingPanel } from './features/fuzzing/FuzzingPanel'
 import { useScanStore } from './core/store/useScanStore'
@@ -16,8 +16,6 @@ import { useScanStore } from './core/store/useScanStore'
 // WORKSPACE: BÓVEDA CIFRADA (Vault)
 // ===============================================
 function VaultWorkspace() {
-  // Sprint 2: ya NO destructuramos masterPasswordHash (fue eliminado del store).
-  // La UI decide si es "bóveda nueva" o "bóveda existente" mirando encryptedVaultData.
   const {
     vaultCredentials,
     addVaultCred,
@@ -36,35 +34,80 @@ function VaultWorkspace() {
   const [notes, setNotes] = useState('');
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
-  // UI de Desbloqueo
-  const [passwordInput, setPasswordInput] = useState('');
+  const passwordRef = useRef('');
+  const [passwordVisible, setPasswordVisible] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
+  useEffect(() => {
+    return () => {
+      passwordRef.current = '';
+      setPasswordVisible('');
+    };
+  }, []);
+
+  const handlePasswordChange = (value: string) => {
+    passwordRef.current = value;
+    setPasswordVisible(value);
+  };
+
+  const clearPassword = () => {
+    passwordRef.current = '';
+    setPasswordVisible('');
+  };
+
   const handleUnlock = async () => {
-    const success = await unlockVault(passwordInput);
+    const pwd = passwordRef.current;
+    if (!pwd) {
+      setErrorMsg('Introduce la contraseña.');
+      return;
+    }
+    const success = await unlockVault(pwd);
     if (!success) {
-      setErrorMsg("Contraseña incorrecta.");
-      setPasswordInput('');
+      setErrorMsg('Contraseña incorrecta.');
+      clearPassword();
     } else {
       setErrorMsg('');
+      clearPassword();
     }
   };
 
   const handleSetMaster = async () => {
-    if (passwordInput.length < 4) {
-      setErrorMsg("Muy corta (Mín. 4)");
+    const pwd = passwordRef.current;
+    if (pwd.length < 4) {
+      setErrorMsg('Muy corta (Mín. 4)');
       return;
     }
-    await setMasterPassword(passwordInput);
-    setErrorMsg('');
+    try {
+      await setMasterPassword(pwd);
+      setErrorMsg('');
+      clearPassword();
+    } catch (e) {
+      console.error('setMasterPassword falló:', e);
+      setErrorMsg('Error creando la bóveda.');
+    }
   };
 
-  const handleAdd = () => {
-    if (target && secret) {
-      addVaultCred({ target, username, secret, type, notes }, passwordInput);
+  const handleAdd = async () => {
+    if (!target || !secret) return;
+    try {
+      await addVaultCred({ target, username, secret, type, notes });
       setUsername('');
       setSecret('');
       setNotes('');
+      setErrorMsg('');
+    } catch (e: any) {
+      setErrorMsg(e.message || 'Error al añadir credencial');
+      setTimeout(() => setErrorMsg(''), 3000);
+    }
+  };
+
+  const handleRemove = async (id: string) => {
+    try {
+      await removeVaultCred(id);
+      setErrorMsg('');
+    } catch (e: any) {
+      setErrorMsg(e.message || 'Error al eliminar credencial');
+      setTimeout(() => setErrorMsg(''), 3000);
     }
   };
 
@@ -95,9 +138,6 @@ function VaultWorkspace() {
   };
 
   if (!isVaultUnlocked) {
-    // Sprint 2: `isNew` se calcula según si existe o no un blob cifrado.
-    //   - Sin blob → es una bóveda nueva, hay que crearla con una pwd maestra
-    //   - Con blob → es una bóveda existente, hay que desbloquearla
     const isNew = !encryptedVaultData;
 
     return (
@@ -113,12 +153,14 @@ function VaultWorkspace() {
         </p>
         <input
           type="password"
-          value={passwordInput}
-          onChange={e => setPasswordInput(e.target.value)}
+          value={passwordVisible}
+          onChange={e => handlePasswordChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') isNew ? handleSetMaster() : handleUnlock();
           }}
           placeholder="Contraseña Maestra..."
+          autoComplete="off"
+          spellCheck={false}
           className="w-full px-4 py-2 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded mb-2 text-sm font-mono dark:text-white outline-none focus:border-teal-500 text-center"
         />
         {errorMsg && <p className="text-red-500 text-xs font-bold mb-3">{errorMsg}</p>}
@@ -144,6 +186,13 @@ function VaultWorkspace() {
           <button onClick={exportVault} className="px-2 py-1 bg-[#0b282c]/10 text-[#0b282c] dark:bg-[#0b282c]/50 dark:text-teal-400 text-[9px] font-bold rounded">Exportar Txt</button>
         </div>
       </div>
+
+      {errorMsg && (
+        <div className="mb-2 p-1.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded text-[10px] text-red-600 dark:text-red-400 font-bold">
+          {errorMsg}
+        </div>
+      )}
+
       <div className="flex flex-col gap-2 mb-4 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-lg border border-slate-200 dark:border-slate-700">
         <div className="flex gap-2">
           <input
@@ -186,6 +235,7 @@ function VaultWorkspace() {
           </button>
         </div>
       </div>
+
       <div className="flex-1 overflow-auto custom-scrollbar border border-slate-200 dark:border-slate-700 rounded-lg">
         <table className="w-full text-left text-[11px] text-slate-600 dark:text-slate-300">
           <thead className="bg-slate-100 dark:bg-slate-800 uppercase font-bold text-[9px] text-slate-500">
@@ -227,7 +277,7 @@ function VaultWorkspace() {
                 </td>
                 <td className="p-2 text-center align-middle">
                   <button
-                    onClick={() => removeVaultCred(c.id, passwordInput)}
+                    onClick={() => handleRemove(c.id)}
                     className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 p-1 rounded"
                   >
                     ✕
@@ -263,13 +313,11 @@ export default function App() {
     vpnIp, connectVpn, disconnectVpn, checkVpnStatus,
     volume, setVolume, soundEnabled, toggleSound,
     isScanning, clearOutput, getNmapArgs, setScanDuration,
-    notifyCompletion, cancelScan, autoSaveEnabled, toggleAutoSave
+    notifyCompletion, cancelScan, autoSaveEnabled, toggleAutoSave,
+    backendStatus, backendLastError, backendLastSyncAt, pingBackend
   } = useScanStore()
 
-  // ✅ FIX: useRef en lugar de variable local. Antes se perdía en cada render.
   const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // ✅ FIX: guardamos handleScan en un ref para que el setTimeout siempre llame a la versión actual.
   const handleScanRef = useRef<() => Promise<void>>(async () => {})
 
   useEffect(() => {
@@ -277,6 +325,14 @@ export default function App() {
     const vpnInterval = setInterval(checkVpnStatus, 5000)
     return () => clearInterval(vpnInterval)
   }, [checkVpnStatus])
+
+  useEffect(() => {
+    pingBackend()
+    const interval = setInterval(() => {
+      pingBackend()
+    }, 30_000)
+    return () => clearInterval(interval)
+  }, [pingBackend])
 
   useEffect(() => {
     const unlistenData = listen<string>('nmap-structured-data', (event) => {
@@ -299,7 +355,6 @@ export default function App() {
       unlistenData.then(f => f())
       unlistenFuzz.then(f => f())
       unlistenFuzzEnd.then(f => f())
-      // ✅ FIX: limpiar el timeout del auto-scan al desmontar
       if (scanTimeoutRef.current) {
         clearTimeout(scanTimeoutRef.current)
         scanTimeoutRef.current = null
@@ -353,6 +408,41 @@ export default function App() {
     setField('autoScanInterval', 0)
     cancelScan()
   }
+
+  const backendMeta = (() => {
+    if (backendStatus === 'online') {
+      return {
+        icon: '🟢',
+        label: 'BACKEND',
+        color: 'text-emerald-400',
+        dotColor: 'bg-emerald-400',
+        pulse: true,
+        tooltip: backendLastSyncAt
+          ? `Backend ONLINE. Último sync: ${new Date(backendLastSyncAt).toLocaleTimeString()}`
+          : 'Backend ONLINE',
+      }
+    }
+    if (backendStatus === 'offline') {
+      return {
+        icon: '🔴',
+        label: 'BACKEND',
+        color: 'text-red-400',
+        dotColor: 'bg-red-400',
+        pulse: false,
+        tooltip: backendLastError
+          ? `Backend OFFLINE.\nError: ${backendLastError}\n\nClic para reintentar`
+          : 'Backend OFFLINE.\n\nClic para reintentar',
+      }
+    }
+    return {
+      icon: '⚪',
+      label: 'BACKEND',
+      color: 'text-slate-400',
+      dotColor: 'bg-slate-400',
+      pulse: false,
+      tooltip: 'Estado del backend desconocido.\n\nClic para verificar',
+    }
+  })()
 
   return (
     <div className={`${theme} flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-200 font-sans transition-colors duration-200 print:bg-white print:text-black`}>
@@ -409,7 +499,7 @@ export default function App() {
           <button onClick={() => setActiveWorkspace('recon')} title="Reconocimiento (Nmap/Dashboard)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'recon' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📊</span></button>
           <button onClick={() => setActiveWorkspace('topo')} title="Topología de Red" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'topo' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🕸</span></button>
           <button onClick={() => setActiveWorkspace('fuzz')} title="Web Fuzzer Visualizer" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'fuzz' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🌐</span></button>
-          <button onClick={() => setActiveWorkspace('arsenal')} title="Arsenal (Netcat, Payloads, Hashes)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'arsenal' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧰</span></button>
+          <button onClick={() => setActiveWorkspace('arsenal')} title="Arsenal (Shells, Vulns, Services, Crypto, Listener)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'arsenal' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧰</span></button>
           <button onClick={() => setActiveWorkspace('cerebro')} title="Cerebro (Bóveda y Bitácora)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'cerebro' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧠</span></button>
           <button onClick={() => setActiveWorkspace('intel')} title="Threat Intelligence (MITRE ATT&CK)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'intel' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📖</span></button>
         </aside>
@@ -427,15 +517,7 @@ export default function App() {
               <div className="h-full mx-auto max-w-7xl"><FuzzingPanel /></div>
             </div>
           )}
-          {activeWorkspace === 'arsenal' && (
-            <div className="flex flex-1 overflow-hidden">
-              <div className="w-[320px] border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 overflow-y-auto flex flex-col shrink-0">
-                <div className="h-1/2 overflow-y-auto border-b border-slate-200 dark:border-slate-800"><PayloadsTool /></div>
-                <div className="h-1/2 overflow-y-auto"><DecodersTool /></div>
-              </div>
-              <div className="flex-1 bg-slate-950 p-2"><NetcatTool /></div>
-            </div>
-          )}
+          {activeWorkspace === 'arsenal' && <ArsenalLayout />}
           {activeWorkspace === 'cerebro' && (
             <div className="flex flex-1 overflow-hidden">
               <div className="w-[350px] shrink-0 overflow-y-auto bg-slate-50 dark:bg-slate-950"><VaultWorkspace /></div>
@@ -480,6 +562,17 @@ export default function App() {
           <button onClick={toggleAutoSave} className="flex items-center gap-1 hover:text-teal-200 transition-colors" title="El estado de la app se guarda en disco local al instante.">
             {autoSaveEnabled ? '💾 AUTO-GUARDADO ON' : '⚠ AUTO-GUARDADO OFF'}
           </button>
+
+          {/* INDICADOR DEL BACKEND */}
+          <button
+            onClick={() => pingBackend()}
+            title={backendMeta.tooltip}
+            className={`flex items-center gap-1.5 hover:text-teal-200 transition-colors cursor-pointer ${backendMeta.color}`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${backendMeta.dotColor} ${backendMeta.pulse ? 'animate-pulse' : ''}`}></span>
+            {backendMeta.label}
+          </button>
+
           <div className="flex items-center gap-1.5 bg-[#081e21] px-2 py-0.5 rounded border border-[#144249]" title="Ajustar Volumen de Alertas">
             <button onClick={toggleSound} className="hover:scale-110 transition-transform text-teal-400">{soundEnabled ? '🔊' : '🔇'}</button>
             <input type="range" min="0" max="100" step="1" value={volume} onChange={(e) => setVolume(parseInt(e.target.value))} className="w-16 h-1 accent-teal-400 appearance-none bg-[#144249] rounded-lg cursor-pointer" />
