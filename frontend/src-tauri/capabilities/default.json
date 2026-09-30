@@ -1,16 +1,33 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "enables the default permissions",
-  "windows": [
-    "main"
-  ],
+  "description": "LESSSO C2 — permisos mínimos necesarios",
+  "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-title",
+
     "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
+
     "fs:default",
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
-    "notification:default"
+    "fs:scope-app-recursive",
+    "fs:scope-appdata-recursive",
+    "fs:scope-temp-recursive",
+
+    "notification:default",
+    "notification:allow-is-permission-granted",
+    "notification:allow-request-permission",
+    "notification:allow-notify",
+
+    "shell:default",
+    "shell:allow-open"
   ]
 }

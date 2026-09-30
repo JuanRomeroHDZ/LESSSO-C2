@@ -1,48 +1,77 @@
+# ==========================================================
+# LESSSO C2 — Stack completo (API + Postgres + Redis)
+# ----------------------------------------------------------
+# Este archivo NO contiene secretos. Todas las credenciales
+# vienen del archivo .env (que está en .gitignore).
+#
+# Para levantar el stack:
+#   1. cp .env.example .env
+#   2. Edita .env con tus credenciales
+#   3. docker compose up -d --build
+# ==========================================================
+
 name: juanmap-stack
 
 services:
+  # ----------------------------------------------------------
+  # API — FastAPI (backend)
+  # ----------------------------------------------------------
   api:
     build:
       context: ./backend
     container_name: juanmap_api
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      # ⚠️ Bindea solo a 127.0.0.1 (localhost).
+      # Se lee del .env como "127.0.0.1:8001"
+      - "${API_HOST_PORT}:8000"
     volumes:
       - ./backend:/app
     environment:
-      - DATABASE_URL=postgresql+asyncpg://admin:secretpassword@db:5432/juanmap_db
-      - REDIS_URL=redis://redis:6379/0
+      # URLs construidas a partir de las variables del .env
+      # (Docker Compose las expande automáticamente)
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_started
 
+  # ----------------------------------------------------------
+  # DB — PostgreSQL
+  # ----------------------------------------------------------
   db:
     image: postgres:17-alpine
     container_name: juanmap_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: secretpassword
-      POSTGRES_DB: juanmap_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "5433:5432"
+      # ⚠️ Bindea solo a 127.0.0.1 (localhost).
+      # Se lee del .env como "127.0.0.1:5433"
+      - "${POSTGRES_HOST_PORT}:5432"
     volumes:
       - juanmap_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d juanmap_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # ----------------------------------------------------------
+  # Cache — Redis
+  # ----------------------------------------------------------
   redis:
     image: redis:7-alpine
     container_name: juanmap_redis
     restart: unless-stopped
     ports:
-      - "6380:6379"
+      # ⚠️ Bindea solo a 127.0.0.1 (localhost).
+      # Se lee del .env como "127.0.0.1:6380"
+      - "${REDIS_HOST_PORT}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

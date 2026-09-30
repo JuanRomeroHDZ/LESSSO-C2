@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, XAxis } from 'recharts'
 import { save, open } from '@tauri-apps/plugin-dialog'
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs'
@@ -429,7 +429,7 @@ export function DashboardPanel() {
                   {!host.ports || host.ports.length === 0 ? (
                     <tr><td colSpan={5} className="px-3 py-2 text-center text-slate-400 text-[10px]">Sin puertos abiertos</td></tr>
                   ) : (
-                    host.ports.map((port, pidx) => {
+                    host.ports.map((port) => {
                       const cvList = detectCVEs(port.service, port.version);
                       const ianaDesc = IANA_PORTS[port.portid];
                       const pastHost = historyData.find(h => h.ip === host.ip);
@@ -440,8 +440,8 @@ export function DashboardPanel() {
                       const isExpanded = expandedPorts[portKey];
 
                       return (
-                        <>
-                          <tr key={pidx} className={`border-b border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors ${isNewPort ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''} print:border-slate-200 print:break-inside-avoid`}>
+                        <Fragment key={portKey}>
+                          <tr className={`border-b border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors ${isNewPort ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''} print:border-slate-200 print:break-inside-avoid`}>
                             <td className={`px-3 ${pyClass} font-bold text-slate-900 dark:text-slate-200 print:text-black flex items-center gap-1`}>
                               {hasScripts && <button onClick={() => togglePortExpand(portKey)} className="text-[9px] w-4 h-4 flex items-center justify-center bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-400 font-black rounded hover:bg-teal-500 hover:text-white transition-colors print:hidden">{isExpanded ? '-' : '+'}</button>}
                               {port.portid}/{port.protocol}{isNewPort && <span className="ml-1 bg-emerald-500 text-white text-[8px] px-1 py-0.5 rounded-sm">NUEVO</span>}
@@ -460,8 +460,8 @@ export function DashboardPanel() {
                             <tr className="bg-slate-100 dark:bg-slate-900/50 print:bg-slate-50 print:break-inside-avoid">
                               <td colSpan={5} className="p-0 border-b border-slate-200 dark:border-slate-800 print:border-slate-300">
                                 <div className="p-3 m-2 bg-[#0b1120] rounded-lg shadow-inner overflow-x-auto custom-scrollbar print:bg-transparent print:shadow-none print:border print:border-slate-200">
-                                  {port.scripts?.map((s, idx) => (
-                                    <div key={idx} className="mb-2 last:mb-0">
+                                  {port.scripts?.map((s, sidx) => (
+                                    <div key={sidx} className="mb-2 last:mb-0">
                                       <span className="text-[10px] font-black uppercase text-teal-400 border-b border-teal-900 block mb-1 print:text-teal-700 print:border-teal-300">↳ {s.id}</span>
                                       <pre className="text-[10px] font-mono text-emerald-400 whitespace-pre-wrap leading-relaxed print:text-slate-800">{s.output}</pre>
                                     </div>
@@ -470,7 +470,7 @@ export function DashboardPanel() {
                               </td>
                             </tr>
                           )}
-                        </>
+                        </Fragment>
                       )
                     })
                   )}

@@ -1,15 +1,34 @@
 #!/bin/bash
 
-echo "🚀 Iniciando diagnóstico y arranque de JuanMap..."
+echo "🚀 Iniciando diagnóstico y arranque de LESSSO C2..."
 echo "---------------------------------------------------"
 
-# 1. Verificar Nmap en el host (Requisito para Tauri/Rust)
-if ! command -v nmap &> /dev/null; then
-    echo "❌ ERROR: nmap no está instalado en el sistema base."
-    echo "💡 Solución: Ejecuta 'sudo apt update && sudo apt install nmap'"
-    exit 1
+# 1. Verificar Dependencias en el host (Requisito para Tauri/Rust)
+echo "🔍 Verificando herramientas de seguridad del sistema..."
+
+TOOLS=("nmap" "rustscan" "gobuster" "openvpn" "pkexec")
+MISSING_TOOLS=0
+
+for tool in "${TOOLS[@]}"; do
+    if ! command -v "$tool" &> /dev/null; then
+        echo "  ❌ Falta: $tool"
+        MISSING_TOOLS=$((MISSING_TOOLS+1))
+    else
+        echo "  ✅ Detectado: $tool"
+    fi
+done
+
+if [ "$MISSING_TOOLS" -gt 0 ]; then
+    echo "---------------------------------------------------"
+    echo "⚠️ ADVERTENCIA: Faltan $MISSING_TOOLS herramientas en tu sistema."
+    echo "💡 Solución rápida en Debian/Ubuntu/Kali:"
+    echo "   sudo apt update && sudo apt install nmap gobuster openvpn pkexec"
+    echo "   (Para rustscan, instálalo desde su repositorio oficial o usa release .deb)"
+    echo "---------------------------------------------------"
+    # No detenemos el script porque la app puede funcionar sin algunas herramientas
+    sleep 2
 else
-    echo "✅ Dependencia local: Nmap detectado."
+    echo "✅ Todas las dependencias del sistema están listas."
 fi
 
 # 2. Levantar los contenedores del Backend
@@ -23,7 +42,6 @@ RETRY_COUNT=0
 API_READY=false
 
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    # Usamos curl para ver si la ruta raíz devuelve un 200 OK
     if curl -s http://localhost:8001/ | grep -q '"status":"ok"'; then
         API_READY=true
         echo "✅ API Backend: Respondiendo correctamente en http://localhost:8001"
@@ -52,8 +70,8 @@ cd ..
 
 # 5. Ejecutar Tauri
 echo "---------------------------------------------------"
-echo "🖥️  Lanzando JuanMap Desktop..."
-echo "⚠️  NOTA: Para probar la integración completa, realiza un escaneo a '127.0.0.1' cuando se abra la ventana."
+echo "🖥️  Lanzando LESSSO C2 Desktop..."
+echo "⚠️  NOTA: Para probar la integración completa, realiza un escaneo a '127.0.0.1'."
 echo "---------------------------------------------------"
 
 npx tauri dev

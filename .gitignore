@@ -1,0 +1,112 @@
+# ==========================================
+# DEPENDENCIAS
+# ==========================================
+node_modules/
+*/node_modules/
+**/node_modules/
+
+# ==========================================
+# BUILD ARTIFACTS
+# ==========================================
+# Frontend (Vite)
+dist/
+frontend/dist/
+*/dist/
+
+# Tauri / Rust
+target/
+frontend/src-tauri/target/
+*/target/
+
+# ==========================================
+# TAURI GENERATED
+# ==========================================
+frontend/src-tauri/gen/schemas/
+
+# ==========================================
+# NMAP OUTPUTS (bug histórico — no commitear evidencia)
+# ==========================================
+*.nmap
+*.gnmap
+*.xml
+frontend/src-tauri/localhost
+
+# ==========================================
+# ENTORNO Y SECRETOS
+# ==========================================
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+!src/**/*.key
+!src-tauri/icons/*.key
+
+# ==========================================
+# PYTHON (backend)
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ==========================================
+# DOCKER
+# ==========================================
+*.log
+docker-compose.override.yml
+
+# ==========================================
+# EDITORES / OS
+# ==========================================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==========================================
+# LOGS
+# ==========================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+logs/
+*.log.*
+
+# ==========================================
+# ARCHIVOS LOCALES DE TEST
+# ==========================================
+test_*.local.sh
+*_local.*
+scratch/
+tmp/
