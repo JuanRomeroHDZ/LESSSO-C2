@@ -1,15 +1,15 @@
 // ==========================================================
-// LESSSO C2 — Backend Tauri (v4, arquitectura por PID)
+// LESSSO C2 — Backend Tauri (v5, arquitectura por process group)
 // ----------------------------------------------------------
 // Este archivo contiene TODOS los comandos del backend.
 // main.rs solo llama a `app_lib::run()`.
 //
 // DIFERENCIA CLAVE vs versiones anteriores:
-//   - En vez de depender de process groups (setsid + killpg),
-//     guardamos el PID explícito de cada proceso spawneado.
-//   - Al matar, usamos `kill(pid, SIGKILL)` + `pgrep -f` como
-//     red de seguridad para encontrar procesos residuales.
-//   - kill_sweep ejecuta `pkill -9 -f` sobre patrones conocidos
+//   - Los procesos spawneados (nc, bash) usan `setsid()` para
+//     convertirse en líderes de su propio process group.
+//   - Al matar, usamos `kill(-pgid, SIGKILL)` para tumbar al
+//     proceso Y a todos sus descendientes de un solo golpe.
+//   - `kill_sweep` ejecuta `pkill -9 -f` sobre patrones conocidos
 //     para garantizar que no quede NADA al cerrar la app.
 //
 // Organización:
@@ -19,7 +19,7 @@
 //   4.  Screenshots / clipboard
 //   5.  Red / VPN
 //   6.  Nmap / RustScan
-//   7.  Terminales (bash, nc) — por PID explícito
+//   7.  Terminales (bash, nc) — por process group
 //   7b. Kill sweep al cerrar la app
 //   8.  Fuzzer (gobuster)
 //   9.  Entry point
@@ -39,6 +39,9 @@ use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
 use rand::RngCore;
 use argon2::{Argon2, Algorithm, Version, Params};
 use zeroize::Zeroize;
+
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 // ==========================================================
 // 1. TIPOS Y ESTADO GLOBAL
@@ -173,7 +176,10 @@ fn force_kill_pid(_pid: i32, _timeout_ms: u64) -> bool {
     true
 }
 
-/// Mata un process group entero (por si setsid funcionó en Nmap).
+/// Mata un process group entero.
+///
+/// Con `setsid()` aplicado al hijo, el PID es el PGID del grupo.
+/// `kill(-pgid, SIG)` mata a todos los procesos del grupo.
 #[cfg(unix)]
 fn kill_process_group(pgid: i32) {
     if pgid <= 0 { return; }
@@ -202,11 +208,27 @@ fn kill_process_group(pgid: i32) {
     }
 }
 
+/// `pre_exec` que llama a `setsid()` en el hijo tras `fork()`
+/// y antes de `exec()`. Convierte al hijo en líder de su propio
+/// process group, para que `kill(-pgid)` cubra a todos sus
+/// descendientes.
+///
+/// Si `setsid()` falla, imprimimos el error pero NO abortamos.
+#[cfg(unix)]
+fn pre_exec_setsid() -> std::io::Result<()> {
+    unsafe {
+        if libc::setsid() == -1 {
+            eprintln!(
+                "[pre_exec_setsid] setsid() falló: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Ejecuta `pkill -9 -f <pattern>` para matar cualquier proceso
 /// cuya línea de comando coincida con el patrón.
-///
-/// Esto es la RED DE SEGURIDAD FINAL. Aunque falle todo lo demás,
-/// `pkill -9` mata sin piedad.
 #[cfg(unix)]
 fn pkill_pattern(pattern: &str) -> usize {
     let output = Command::new("pkill")
@@ -215,7 +237,6 @@ fn pkill_pattern(pattern: &str) -> usize {
 
     match output {
         Ok(out) => {
-            // pkill devuelve 0 si mató algo, 1 si no encontró nada
             if out.status.success() { 1 } else { 0 }
         }
         Err(_) => 0,
@@ -1061,36 +1082,26 @@ fn cancel_nmap(state: State<'_, ScanProcess>) {
 }
 
 // ==========================================================
-// 7. TERMINALES — ARQUITECTURA POR PID EXPLÍCITO
+// 7. TERMINALES — ARQUITECTURA POR PROCESS GROUP
 // ==========================================================
 //
-// CAMBIO FUNDAMENTAL:
+// CAMBIO FUNDAMENTAL vs v4:
 //
-//   En versiones anteriores dependíamos de `setsid()` + process
-//   groups. Eso falla porque:
+//   Antes guardábamos el PID y matábamos solo el PID. Eso fallaba
+//   cuando `bash` spawneaba hijos (nmap, python, nc dentro de bash).
 //
-//     1. `bash -c "nc ..."` hace execvp() y el nc termina siendo
-//        un proceso distinto al que Rust captura.
-//     2. `netcat-openbsd` hace `setsid()` por su cuenta, sacándose
-//        del process group de bash.
-//     3. El shutdown de Tauri corta `Child::kill()` a medias.
+//   Ahora aplicamos `setsid()` en el hijo vía `pre_exec`. El hijo
+//   se convierte en líder de su propio process group, y al hacer
+//   `kill(-pgid, SIGKILL)` matamos a él Y a todos sus descendientes
+//   de un solo golpe.
 //
-//   AHORA:
-//
-//     - Spawneamos `nc` directamente (sin bash).
-//     - Guardamos el PID del proceso en un mapa explícito.
-//     - Al matar, usamos `kill(pid, SIGKILL)` directo + `pkill -f`
-//       como red de seguridad.
-//     - `kill_sweep` ejecuta `pkill -9 -f "nc -lvnp"` al cerrar.
+//   Además, `kill_sweep` ahora mata también `bash -i` y `gobuster`
+//   por patrón, como red de seguridad final.
 // ==========================================================
 
 /// Lanza un proceso y guarda su PID + Child.
 ///
-/// `session_id`: identificador único de la sesión.
-/// `cmd`:        binario a ejecutar (ej. "nc", "/bin/bash").
-/// `args`:       argumentos.
-/// `sig_pattern`: patrón para `pkill -f` (red de seguridad).
-///                Puede ser None si no queremos pkill.
+/// El hijo es líder de su propio process group (vía `setsid()`).
 #[tauri::command]
 async fn start_terminal(
     app: AppHandle,
@@ -1099,11 +1110,21 @@ async fn start_terminal(
     cmd: String,
     args: Vec<String>,
 ) -> Result<(), String> {
-    let mut child = Command::new(&cmd)
+    let mut command = Command::new(&cmd);
+    command
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    // Aísla el hijo en su propio process group para que
+    // kill(-pgid) cubra a todos sus descendientes.
+    #[cfg(unix)]
+    unsafe {
+        command.pre_exec(pre_exec_setsid);
+    }
+
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Error lanzando '{}': {}", cmd, e))?;
 
@@ -1112,7 +1133,6 @@ async fn start_terminal(
     let mut stdout = child.stdout.take().ok_or("Error capturando stdout")?;
     let mut stderr = child.stderr.take().ok_or("Error capturando stderr")?;
 
-    // Guardar PID + Child en los mapas separados
     {
         let mut pids = state.pids.lock().unwrap();
         pids.insert(session_id.clone(), pid);
@@ -1122,9 +1142,11 @@ async fn start_terminal(
         children.insert(session_id.clone(), child);
     }
 
-    println!("[start_terminal] session='{}', pid={}, cmd={}", session_id, pid, cmd);
+    println!(
+        "[start_terminal] session='{}', pid={}, cmd={}",
+        session_id, pid, cmd
+    );
 
-    // Hilo de stdout
     let app_out = app.clone();
     let sid_out = session_id.clone();
     std::thread::spawn(move || {
@@ -1141,7 +1163,6 @@ async fn start_terminal(
         let _ = app_out.emit(&format!("term-exit-{}", sid_out), ());
     });
 
-    // Hilo de stderr
     let app_err = app.clone();
     let sid_err = session_id.clone();
     std::thread::spawn(move || {
@@ -1179,9 +1200,6 @@ async fn write_terminal(
 }
 
 /// Envía una señal al PID del proceso principal de la sesión.
-///
-/// Para SIGINT/SIGTSTP, además hacemos un `pkill -f` con el
-/// patrón conocido para asegurar que llega a los hijos.
 #[tauri::command]
 async fn send_terminal_signal(
     state: State<'_, TerminalState>,
@@ -1216,16 +1234,12 @@ async fn send_terminal_signal(
     Ok(())
 }
 
-/// Cierra una sesión: mata el PID con SIGKILL.
-///
-/// Además, si la sesión empieza por "listener-", ejecuta
-/// `pkill -9 -f "nc -lvnp"` como red de seguridad.
+/// Cierra una sesión matando el process group completo.
 #[tauri::command]
 async fn kill_terminal(
     state: State<'_, TerminalState>,
     session_id: String,
 ) -> Result<(), String> {
-    // Sacar PID + Child de los mapas
     let pid_opt = {
         let mut pids = state.pids.lock().unwrap();
         pids.remove(&session_id)
@@ -1237,10 +1251,19 @@ async fn kill_terminal(
 
     if let Some(pid) = pid_opt {
         println!("[kill_terminal] session='{}', pid={}", session_id, pid);
-        let _ = force_kill_pid(pid, 1000);
+
+        #[cfg(unix)]
+        {
+            kill_process_group(pid);
+            let _ = force_kill_pid(pid, 1000);
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = force_kill_pid(pid, 1000);
+        }
     }
 
-    // Esperar al Child para no dejar zombie
     if let Some(mut child) = child_opt {
         let _ = child.wait();
     }
@@ -1256,7 +1279,6 @@ async fn kill_all_terminals(
 ) -> Result<usize, String> {
     let prefix = session_prefix.unwrap_or_default();
 
-    // Sacar todos los IDs que matchean
     let ids: Vec<String> = {
         let pids = state.pids.lock().unwrap();
         pids.keys()
@@ -1277,7 +1299,17 @@ async fn kill_all_terminals(
         };
 
         if let Some(pid) = pid_opt {
-            let _ = force_kill_pid(pid, 500);
+            #[cfg(unix)]
+            {
+                kill_process_group(pid);
+                let _ = force_kill_pid(pid, 500);
+            }
+
+            #[cfg(not(unix))]
+            {
+                let _ = force_kill_pid(pid, 500);
+            }
+
             killed += 1;
         }
         if let Some(mut child) = child_opt {
@@ -1285,10 +1317,11 @@ async fn kill_all_terminals(
         }
     }
 
-    // Red de seguridad: si matamos listeners, pkill -f también
     if prefix.is_empty() || prefix.starts_with("listener-") {
-        let pattern = "nc -lvnp";
-        let _ = pkill_pattern(pattern);
+        let _ = pkill_pattern("nc -lvnp");
+    }
+    if prefix.is_empty() || prefix.starts_with("lessso-bash-") {
+        let _ = pkill_pattern("bash -i");
     }
 
     Ok(killed)
@@ -1297,18 +1330,10 @@ async fn kill_all_terminals(
 // ==========================================================
 // 7b. CIERRE DE APP — KILL SWEEP GLOBAL
 // ==========================================================
-//
-// Al cerrar la app ejecutamos:
-//   1. Matar todos los PIDs guardados en `TerminalState`.
-//   2. `pkill -9 -f "nc -lvnp"` como red de seguridad final.
-//   3. Matar Nmap/RustScan si está corriendo.
-//
-// Es agresivo a propósito: preferimos matar de más que dejar
-// procesos huérfanos ocupando puertos.
+
 fn kill_sweep(app: &AppHandle) {
-    // ─── 1. Terminales por PID ─────────────────────────────
+    // ─── 1. Terminales por PID + process group ─────────────
     if let Some(state) = app.try_state::<TerminalState>() {
-        // PIDs
         let pids: Vec<i32> = {
             let mut pids = match state.pids.lock() {
                 Ok(g) => g,
@@ -1320,11 +1345,12 @@ fn kill_sweep(app: &AppHandle) {
         };
 
         for pid in pids {
-            println!("[kill_sweep] Matando PID {}", pid);
+            println!("[kill_sweep] Matando process group PID {}", pid);
+            #[cfg(unix)]
+            kill_process_group(pid);
             let _ = force_kill_pid(pid, 500);
         }
 
-        // Children (para hacer wait y no dejar zombies)
         let children: Vec<Child> = {
             let mut children = match state.children.lock() {
                 Ok(g) => g,
@@ -1339,14 +1365,14 @@ fn kill_sweep(app: &AppHandle) {
         }
     }
 
-    // ─── 2. Red de seguridad por patrón ─────────────────────
-    // Mata CUALQUIER nc -lvnp que quede, aunque no lo hayamos
-    // spawneado nosotros.
+    // ─── 2. Red de seguridad por patrón ────────────────────
     #[cfg(unix)]
     {
-        let killed_nc = pkill_pattern("nc -lvnp");
-        if killed_nc > 0 {
-            println!("[kill_sweep] pkill mató procesos nc -lvnp residuales");
+        for pattern in &["nc -lvnp", "bash -i", "lessso-bash-"] {
+            let killed = pkill_pattern(pattern);
+            if killed > 0 {
+                println!("[kill_sweep] pkill mató procesos: '{}'", pattern);
+            }
         }
     }
 
@@ -1357,6 +1383,15 @@ fn kill_sweep(app: &AppHandle) {
             kill_process_group(pid);
             scan.0.store(-1, Ordering::SeqCst);
             println!("[kill_sweep] Detenido escaneo PID {}", pid);
+        }
+    }
+
+    // ─── 4. Gobuster ───────────────────────────────────────
+    #[cfg(unix)]
+    {
+        let killed = pkill_pattern("gobuster");
+        if killed > 0 {
+            println!("[kill_sweep] pkill mató gobuster residual");
         }
     }
 
@@ -1405,6 +1440,19 @@ async fn run_fuzzer(
         });
     }
 
+    if let Some(stderr) = child.stderr.take() {
+        let app_err = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().flatten() {
+                let _ = app_err.emit("fuzzer-output", line);
+            }
+        });
+    }
+
+    // No esperamos al child: corre en background.
+    // Lo mata `kill_sweep` al cerrar la app, o el usuario con
+    // `kill_all_terminals` si lo desea.
     Ok(())
 }
 
@@ -1422,35 +1470,27 @@ pub fn run() {
         .manage(ScanProcess(AtomicI32::new(-1)))
         .manage(TerminalState::new())
         .invoke_handler(tauri::generate_handler![
-            // Cifrado / bóveda
             encrypt_vault,
             decrypt_vault,
-            // Screenshots
             save_clipboard_image,
             paste_and_save_image,
-            // Red / VPN
             get_network_interfaces,
             check_vpn,
             connect_vpn,
             disconnect_vpn,
-            // Nmap / RustScan
             run_nmap,
             run_rustscan,
             cancel_nmap,
-            // Terminales
             start_terminal,
             write_terminal,
             send_terminal_signal,
             kill_terminal,
             kill_all_terminals,
-            // Fuzzer
             run_fuzzer,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let app = window.app_handle().clone();
-                // SÍNCRONO a propósito: queremos que termine antes
-                // de que la ventana se destruya.
                 kill_sweep(&app);
             }
         })
