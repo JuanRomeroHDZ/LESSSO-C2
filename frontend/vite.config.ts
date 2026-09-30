@@ -17,10 +17,13 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'zustand'],
-          ui_heavy: ['recharts', 'reactflow', '@uiw/react-md-editor'],
-          terminal: ['@xterm/xterm', '@xterm/addon-fit']
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('zustand')) return 'vendor';
+            if (id.includes('recharts') || id.includes('reactflow') || id.includes('@uiw/react-md-editor')) return 'ui_heavy';
+            if (id.includes('xterm')) return 'terminal';
+            return 'vendor_other';
+          }
         }
       }
     }

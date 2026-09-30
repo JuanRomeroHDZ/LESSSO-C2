@@ -2,34 +2,23 @@ import { useMemo } from 'react';
 import {
   VULN_PAYLOADS,
   VULN_CATEGORIES,
-  renderVulnPayload,
   type VulnPayload,
   type VulnCategory,
   type NoiseLevel,
 } from '../../core/data/vuln-payloads';
-import type { SelectablePayload } from '../../core/data/arsenal-types';
+import {
+  vulnToSelectable,
+  fuzzyMatch,
+  NOISE_META,
+  type SelectablePayload,
+  type ArsenalPlaceholders
+} from '../../core/data/arsenal-types';
 
-// ==========================================================
-// TIPOS DE PROPS
-// ----------------------------------------------------------
-// Este componente es PRESENTACIONAL: recibe todo del padre.
-// El padre (ArsenalLayout) es quien gestiona búsqueda,
-// filtros, selección y el panel de detalle.
-// ==========================================================
 interface VulnPayloadsToolProps {
-  /** Callback cuando el usuario selecciona un payload */
   onSelect: (payload: SelectablePayload) => void;
-
-  /** ID del payload actualmente seleccionado (formato "vuln:sqli-auth-bypass") */
   selectedId: string | null;
-
-  /** Query de búsqueda (gestionada por el padre) */
   searchQuery: string;
-
-  /** Filtro por nivel de ruido (gestionado por el padre) */
   noiseFilter: NoiseLevel | 'all';
-
-  /** Placeholders para renderizado */
   placeholders: {
     TARGET: string;
     COLLAB: string;
@@ -37,122 +26,39 @@ interface VulnPayloadsToolProps {
   };
 }
 
-// ==========================================================
-// Metadata visual por nivel de ruido
-// ==========================================================
-const NOISE_META: Record<NoiseLevel, { label: string; color: string; bg: string }> = {
-  stealth: { label: 'Sigiloso', color: 'text-emerald-500', bg: 'bg-emerald-100 dark:bg-emerald-900/30' },
-  normal:  { label: 'Normal',   color: 'text-yellow-500',  bg: 'bg-yellow-100 dark:bg-yellow-900/30' },
-  noisy:   { label: 'Ruidoso',  color: 'text-red-500',     bg: 'bg-red-100 dark:bg-red-900/30' },
-};
-
-// ==========================================================
-// Mapper: VulnPayload → SelectablePayload
-// ==========================================================
-function vulnToPayload(
-  vuln: VulnPayload,
-  placeholders: { TARGET: string; COLLAB: string; PARAM: string }
-): SelectablePayload {
-  const rendered = renderVulnPayload(vuln, {
-    TARGET: placeholders.TARGET,
-    COLLAB: placeholders.COLLAB,
-    PARAM: placeholders.PARAM,
-  });
-
-  return {
-    id: `vuln:${vuln.id}`,
-    sourceId: vuln.id,
-    category: 'vuln',
-    subcategory: vuln.category,
-    name: vuln.name,
-    preview: rendered.split('\n')[0].slice(0, 100),
-    fullContent: rendered,
-    description: vuln.description,
-    tags: vuln.tags,
-    noise: vuln.noise,
-    canSendToListener: false, // Las vulns no se envían a listener
-    canSendToNotes: true,
-  };
-}
-
-// ==========================================================
-// HELPER: fuzzy match sobre VulnPayload
-// ==========================================================
-function matchesQuery(vuln: VulnPayload, query: string): boolean {
-  if (!query.trim()) return true;
-  const q = query.toLowerCase();
-  const searchable = [
-    vuln.name,
-    vuln.id,
-    vuln.category,
-    vuln.payload,
-    ...(vuln.tags || []),
-    vuln.description || '',
-  ].join(' ').toLowerCase();
-
-  // 1. Match directo
-  if (searchable.includes(q)) return true;
-
-  // 2. Fuzzy: cada carácter del query aparece en orden
-  let qIdx = 0;
-  for (let i = 0; i < searchable.length && qIdx < q.length; i++) {
-    if (searchable[i] === q[qIdx]) qIdx++;
-  }
-  return qIdx === q.length;
-}
-
-// ==========================================================
-// ORDEN DE CATEGORÍAS PARA RENDERIZADO
-// ==========================================================
 const CATEGORY_ORDER: VulnCategory[] = [
-  'sqli',
-  'xss',
-  'lfi',
-  'rfi',
-  'ssti',
-  'xxe',
-  'ssrf',
-  'cmdi',
-  'nosqli',
-  'ldapi',
-  'crlf',
-  'openredirect',
-  'prototype',
-  'deserialization',
+  'sqli', 'xss', 'lfi', 'rfi', 'ssti', 'xxe', 'ssrf',
+  'cmdi', 'nosqli', 'ldapi', 'crlf', 'openredirect',
+  'prototype', 'deserialization',
 ];
 
-// ==========================================================
-// COMPONENTE
-// ==========================================================
-export function VulnPayloadsTool({
-  onSelect,
-  selectedId,
-  searchQuery,
-  noiseFilter,
-  placeholders,
-}: VulnPayloadsToolProps) {
-  // ========================================================
-  // Filtrar payloads por búsqueda + nivel de ruido
-  // ========================================================
+export function VulnPayloadsTool({ onSelect, selectedId, searchQuery, noiseFilter, placeholders }: VulnPayloadsToolProps) {
+  
+  const currentPlaceholders = useMemo(() => {
+    return { 
+      TARGET: placeholders.TARGET, 
+      COLLAB: placeholders.COLLAB, 
+      PARAM: placeholders.PARAM 
+    } as ArsenalPlaceholders;
+  }, [placeholders]);
+
   const filteredPayloads = useMemo(() => {
     let result = VULN_PAYLOADS;
 
-    // Filtro por nivel de ruido
     if (noiseFilter !== 'all') {
       result = result.filter(p => p.noise === noiseFilter);
     }
 
-    // Filtro por búsqueda
     if (searchQuery.trim()) {
-      result = result.filter(p => matchesQuery(p, searchQuery));
+      result = result.filter(p => {
+        const selectable = vulnToSelectable(p, currentPlaceholders);
+        return fuzzyMatch(searchQuery, selectable);
+      });
     }
 
     return result;
-  }, [searchQuery, noiseFilter]);
+  }, [searchQuery, noiseFilter, currentPlaceholders]);
 
-  // ========================================================
-  // Agrupar por categoría
-  // ========================================================
   const groupedPayloads = useMemo(() => {
     const groups: Record<string, VulnPayload[]> = {};
     filteredPayloads.forEach(p => {
@@ -162,16 +68,10 @@ export function VulnPayloadsTool({
     return groups;
   }, [filteredPayloads]);
 
-  // ========================================================
-  // Handler: click en un payload
-  // ========================================================
   const handleClick = (vuln: VulnPayload) => {
-    onSelect(vulnToPayload(vuln, placeholders));
+    onSelect(vulnToSelectable(vuln, currentPlaceholders));
   };
 
-  // ========================================================
-  // Render: empty state con contexto del filtro activo
-  // ========================================================
   if (filteredPayloads.length === 0) {
     const filterInfo = [
       searchQuery && `búsqueda "${searchQuery}"`,
@@ -198,7 +98,6 @@ export function VulnPayloadsTool({
 
         return (
           <div key={catKey} className="mb-2 last:mb-0">
-            {/* Cabecera del grupo */}
             <div className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-900/95 backdrop-blur-sm px-2 py-1 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
               <span className="text-xs">{catMeta.icon}</span>
               <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
@@ -209,10 +108,9 @@ export function VulnPayloadsTool({
               </span>
             </div>
 
-            {/* Payloads del grupo */}
             <div className="py-1">
               {payloads.map(vuln => {
-                const payload = vulnToPayload(vuln, placeholders);
+                const payload = vulnToSelectable(vuln, currentPlaceholders);
                 const isSelected = selectedId === payload.id;
                 const noiseMeta = NOISE_META[vuln.noise];
 

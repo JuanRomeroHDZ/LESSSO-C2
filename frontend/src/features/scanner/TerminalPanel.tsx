@@ -15,7 +15,13 @@ const ColorizeLine = ({ line }: { line: string }) => {
   if (cleanLine.includes('Discovered open port')) return <span className="text-emerald-400 font-semibold">{cleanLine}</span>;
   if (cleanLine.startsWith('Initiating') || cleanLine.startsWith('Completed') || cleanLine.includes('Open')) return <span className="text-indigo-400 italic">{cleanLine}</span>;
   if (cleanLine.startsWith('NSE:')) return <span className="text-fuchsia-400">{cleanLine}</span>;
-  if (cleanLine.includes('Warning:') || cleanLine.includes('QUITTING') || cleanLine.includes('ERROR:')) return <span className="text-red-500 font-bold">{cleanLine}</span>;
+  
+  // FIX L4: Estandarización de logs
+  if (cleanLine.includes('[ERR]') || cleanLine.includes('ERROR:')) return <span className="text-red-500 font-bold">{cleanLine}</span>;
+  if (cleanLine.includes('[WARN]') || cleanLine.includes('Warning:')) return <span className="text-orange-400 font-bold">{cleanLine}</span>;
+  if (cleanLine.includes('[SYS]')) return <span className="text-sky-300 font-bold">{cleanLine}</span>;
+  if (cleanLine.includes('[OK]')) return <span className="text-emerald-400 font-bold">{cleanLine}</span>;
+
   if (cleanLine.includes('Nmap scan report for')) return <span className="text-sky-300 font-bold mt-3 block border-t border-slate-700/50 pt-2">{cleanLine}</span>;
 
   if (cleanLine.match(/^\d+\/(tcp|udp|sctp)/)) {
@@ -97,7 +103,7 @@ function BashTabInstance({ sessionId, isActive, onRemove, autoLog }: { sessionId
         try {
           await invoke('start_terminal', { sessionId, cmd: '/bin/bash', args: ['-i'] });
         } catch (err) {
-          term.writeln(`\r\n\x1b[1;31m[!] Error del Sistema: ${err}\x1b[0m`);
+          term.writeln(`\r\n\x1b[1;31m[ERR] Error del Sistema: ${err}\x1b[0m`);
         }
 
         const resizeHandler = () => fitAddon.fit();

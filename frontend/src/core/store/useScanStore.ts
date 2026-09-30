@@ -17,9 +17,6 @@ export interface HostInfo { ip: string; hostname?: string; alias?: string; mac: 
 export interface SavedProfile { id: string; name: string; config: Partial<ScanState>; }
 export interface VaultCred { id: string; target: string; type: 'hash' | 'password' | 'key'; username: string; secret: string; notes: string; }
 
-// ==========================================================
-// Estado del backend FastAPI
-// ==========================================================
 export type BackendStatus = 'online' | 'offline' | 'unknown';
 
 interface ScanState {
@@ -39,9 +36,6 @@ interface ScanState {
   onlyOpenPorts: boolean; osScanGuess: boolean; scriptDefault: boolean; minHostgroup: string; maxHostgroup: string;
   nmapOutputFormat: string; nmapOutputPrefix: string; nmapOutputDir: string;
 
-  // =============================
-  // BÓVEDA Y SEGURIDAD (Sprint 2 — hardened)
-  // =============================
   vaultCredentials: VaultCred[];
   encryptedVaultData: string;
   isVaultUnlocked: boolean;
@@ -51,11 +45,7 @@ interface ScanState {
   setMasterPassword: (pwd: string) => Promise<void>;
   addVaultCred: (cred: Omit<VaultCred, 'id'>) => Promise<void>;
   removeVaultCred: (id: string) => Promise<void>;
-  // =============================
 
-  // =============================
-  // ARSENAL (Sprint Arsenal — híbrido A+C)
-  // =============================
   arsenalSelectedId: string | null;
   arsenalPinnedIds: string[];
   arsenalRecentIds: string[];
@@ -67,11 +57,7 @@ interface ScanState {
   setArsenalPlaceholder: <K extends keyof ArsenalPlaceholders>(key: K, value: ArsenalPlaceholders[K]) => void;
   resetArsenalPlaceholders: () => void;
   clearArsenalRecent: () => void;
-  // =============================
 
-  // =============================
-  // BACKEND STATUS (bug #6)
-  // =============================
   backendStatus: BackendStatus;
   backendIsPinging: boolean;
   backendLastError: string | null;
@@ -79,7 +65,6 @@ interface ScanState {
 
   setBackendStatus: (status: BackendStatus, error?: string | null) => void;
   pingBackend: () => Promise<boolean>;
-  // =============================
 
   redTeamNotes: string; setRedTeamNotes: (notes: string) => void;
   redTeamWhiteboard: any; setRedTeamWhiteboard: (data: any) => void;
@@ -101,16 +86,10 @@ interface ScanState {
   syncWithBackend: (target: string, scanDuration: string, data: HostInfo[]) => Promise<void>;
 }
 
-// ==========================================================
-// HELPER: normaliza el target (quita espacios y duplicados)
-// ==========================================================
 function normalizeTarget(raw: string): string {
   return raw.trim().split(/\s+/).filter(Boolean).join(' ');
 }
 
-// ==========================================================
-// HELPER: construye el array de args de Nmap (fuente de verdad)
-// ==========================================================
 function buildNmapArgs(s: ScanState): string[] {
   const args: string[] = [];
 
@@ -186,9 +165,6 @@ function buildNmapArgs(s: ScanState): string[] {
   return args;
 }
 
-// ==========================================================
-// HELPER: genera el comando string SOLO para visualización.
-// ==========================================================
 function buildCommandString(s: ScanState, nmapArgs: string[]): string {
   const targetPart = s.target ? ` ${s.target}` : '';
   if (s.useRustScan) {
@@ -197,9 +173,6 @@ function buildCommandString(s: ScanState, nmapArgs: string[]): string {
   return `nmap ${nmapArgs.join(' ')}${targetPart}`;
 }
 
-// ==========================================================
-// CONSTANTE: endpoint del backend
-// ==========================================================
 const BACKEND_URL = 'http://localhost:8001';
 
 export const useScanStore = create<ScanState>()(
@@ -209,14 +182,10 @@ export const useScanStore = create<ScanState>()(
       commandString: 'nmap -sS -T4', isScanning: false, output: [], parsedData: [], historyData: [], progressText: '', scanDuration: '0s', savedProfiles: [], autoScanInterval: 0, zenMode: false, compactMode: false, quickNotesOpen: false,
       onlyOpenPorts: false, osScanGuess: false, scriptDefault: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'lessso_scan', nmapOutputDir: '',
 
-      // BÓVEDA CIFRADA (Sprint 2 — hardened)
       vaultCredentials: [],
       encryptedVaultData: '',
       isVaultUnlocked: false,
 
-      // ==========================================================
-      // ARSENAL — estado inicial
-      // ==========================================================
       arsenalSelectedId: null,
       arsenalPinnedIds: [],
       arsenalRecentIds: [],
@@ -254,9 +223,6 @@ export const useScanStore = create<ScanState>()(
 
       clearArsenalRecent: () => set({ arsenalRecentIds: [] }),
 
-      // ==========================================================
-      // BACKEND STATUS — estado inicial
-      // ==========================================================
       backendStatus: 'unknown',
       backendIsPinging: false,
       backendLastError: null,
@@ -270,9 +236,6 @@ export const useScanStore = create<ScanState>()(
         });
       },
 
-      // ==========================================================
-      // pingBackend: comprueba si el backend está vivo
-      // ==========================================================
       pingBackend: async () => {
         if (get().backendIsPinging) return false;
 
@@ -292,9 +255,8 @@ export const useScanStore = create<ScanState>()(
 
           if (response.ok) {
             get().setBackendStatus('online');
-            // Solo logueamos cuando cambia el estado (evita spam cada 30s)
             if (previousStatus !== 'online') {
-              get().appendOutput('\n[SISTEMA] ✅ Backend verificado: ONLINE');
+              get().appendOutput('\n[OK] Backend verificado: ONLINE');
             }
             set({ backendIsPinging: false });
             return true;
@@ -303,7 +265,7 @@ export const useScanStore = create<ScanState>()(
           const errorMsg = `HTTP ${response.status} ${response.statusText}`;
           get().setBackendStatus('offline', errorMsg);
           if (previousStatus !== 'offline') {
-            get().appendOutput(`\n[SISTEMA] ⚠ Backend respondió con error: ${errorMsg}`);
+            get().appendOutput(`\n[WARN] Backend respondió con error: ${errorMsg}`);
           }
           set({ backendIsPinging: false });
           return false;
@@ -324,27 +286,12 @@ export const useScanStore = create<ScanState>()(
 
           get().setBackendStatus('offline', friendlyMsg);
           if (previousStatus !== 'offline') {
-            get().appendOutput(`\n[SISTEMA] ❌ Backend OFFLINE: ${friendlyMsg}`);
+            get().appendOutput(`\n[ERR] Backend OFFLINE: ${friendlyMsg}`);
           }
           set({ backendIsPinging: false });
           return false;
         }
       },
-
-      // ==========================================================
-      // BÓVEDA CIFRADA (Sprint 2 — hardened)
-      // ----------------------------------------------------------
-      // La contraseña vive en vaultSession.ts (módulo cerrado),
-      // NO en el estado de Zustand ni en React.
-      //
-      // setMasterPassword / unlockVault guardan la pwd en el
-      // módulo cerrado. addVaultCred / removeVaultCred la leen
-      // de ahí. lockVault la borra.
-      //
-      // Estrategia de cifrado: cifrar PRIMERO, actualizar el
-      // estado SOLO si el cifrado tuvo éxito. Así nunca quedan
-      // memoria y disco desincronizados.
-      // ==========================================================
 
       setMasterPassword: async (pwd: string) => {
         const s = get();
@@ -411,7 +358,6 @@ export const useScanStore = create<ScanState>()(
           { ...cred, id: Date.now().toString() },
         ];
 
-        // Cifrar primero; si falla, el estado queda intacto
         const encrypted = await invoke<string>('encrypt_vault', {
           data: JSON.stringify(newCreds),
           password: pwd,
@@ -451,7 +397,7 @@ export const useScanStore = create<ScanState>()(
 
       fuzzerUrl: '', fuzzerRawOutput: '', isFuzzing: false,
       clearFuzzer: () => set({ fuzzerRawOutput: '', isFuzzing: false }),
-      startFuzzer: async (url, wordlist) => { set({ isFuzzing: true, fuzzerRawOutput: '>>> Iniciando Motor Fuzzer (Gobuster)...\n', fuzzerUrl: url }); try { await invoke('run_fuzzer', { targetUrl: url, wordlist }); } catch (e: any) { set((s) => ({ fuzzerRawOutput: s.fuzzerRawOutput + `\n[ERROR CRÍTICO]: ${e}\n`, isFuzzing: false })); } },
+      startFuzzer: async (url, wordlist) => { set({ isFuzzing: true, fuzzerRawOutput: '>>> Iniciando Motor Fuzzer (Gobuster)...\n', fuzzerUrl: url }); try { await invoke('run_fuzzer', { targetUrl: url, wordlist }); } catch (e: any) { set((s) => ({ fuzzerRawOutput: s.fuzzerRawOutput + `\n[ERR]: ${e}\n`, isFuzzing: false })); } },
 
       toggleTheme: () => set((state) => { const nt = state.theme === 'light' ? 'dark' : 'light'; if (nt === 'dark') document.documentElement.classList.add('dark'); else document.documentElement.classList.remove('dark'); return { theme: nt }; }),
       toggleZenMode: () => set((s) => ({ zenMode: !s.zenMode })), toggleCompactMode: () => set((s) => ({ compactMode: !s.compactMode })), toggleQuickNotes: () => set((s) => ({ quickNotesOpen: !s.quickNotesOpen })),
@@ -513,8 +459,8 @@ export const useScanStore = create<ScanState>()(
 
       cancelScan: async () => {
         try {
-          if (!('__TAURI_INTERNALS__' in window)) { set({ isScanning: false, progressText: '' }); get().appendOutput('\n[!] DETENIDO (Modo Web Simulacro).'); return; }
-          await invoke('cancel_nmap'); set({ isScanning: false, progressText: '' }); get().appendOutput('\n[!] DETENIDO POR EL USUARIO.');
+          if (!('__TAURI_INTERNALS__' in window)) { set({ isScanning: false, progressText: '' }); get().appendOutput('\n[WARN] DETENIDO (Modo Web Simulacro).'); return; }
+          await invoke('cancel_nmap'); set({ isScanning: false, progressText: '' }); get().appendOutput('\n[WARN] DETENIDO POR EL USUARIO.');
         } catch (e) { console.error(e); }
       },
 
@@ -550,9 +496,6 @@ export const useScanStore = create<ScanState>()(
         return args;
       },
 
-      // ==========================================================
-      // syncWithBackend: SINCRONIZA CON EL BACKEND FASTAPI
-      // ==========================================================
       syncWithBackend: async (target: string, scanDuration: string, data: HostInfo[]) => {
         if (!get().autoSaveEnabled) return;
 
@@ -575,11 +518,11 @@ export const useScanStore = create<ScanState>()(
 
           if (response.ok) {
             get().setBackendStatus('online');
-            get().appendOutput('\n[SISTEMA] ✅ Datos sincronizados con LESSSO Backend exitosamente.');
+            get().appendOutput('\n[OK] Datos sincronizados con LESSSO Backend exitosamente.');
           } else {
             const errorMsg = `HTTP ${response.status} ${response.statusText}`;
             get().setBackendStatus('offline', errorMsg);
-            get().appendOutput(`\n[SISTEMA] ⚠ Error sincronizando con backend: ${errorMsg}`);
+            get().appendOutput(`\n[WARN] Error sincronizando con backend: ${errorMsg}`);
             console.warn('[syncWithBackend] Backend respondió con error:', errorMsg);
           }
         } catch (err) {
@@ -599,7 +542,7 @@ export const useScanStore = create<ScanState>()(
 
           get().setBackendStatus('offline', friendlyMsg);
           get().appendOutput(
-            `\n[SISTEMA] ⚠ No se pudo sincronizar con el backend (${friendlyMsg}). ` +
+            `\n[WARN] No se pudo sincronizar con el backend (${friendlyMsg}). ` +
             `Los datos siguen guardados localmente.`
           );
           console.warn('[syncWithBackend] Fallo de conexión:', friendlyMsg);
@@ -608,13 +551,6 @@ export const useScanStore = create<ScanState>()(
     }),
     {
       name: 'lessso-c2-storage',
-      // ==========================================================
-      // partialize: qué se persiste en localStorage.
-      // ----------------------------------------------------------
-      // SEGURIDAD: encryptedVaultData SÍ se persiste (es seguro),
-      // pero la contraseña maestra vive en vaultSession.ts y
-      // NUNCA pasa por aquí.
-      // ==========================================================
       partialize: (state) => state.autoSaveEnabled ? {
         encryptedVaultData: state.encryptedVaultData,
         parsedData: state.parsedData,
@@ -622,21 +558,16 @@ export const useScanStore = create<ScanState>()(
         redTeamNotes: state.redTeamNotes,
         redTeamWhiteboard: state.redTeamWhiteboard,
         savedProfiles: state.savedProfiles,
-        // Arsenal — persistencia
         arsenalPinnedIds: state.arsenalPinnedIds,
         arsenalRecentIds: state.arsenalRecentIds,
         arsenalPlaceholders: state.arsenalPlaceholders,
-        // Backend status — persistencia (último estado conocido)
         backendStatus: state.backendStatus,
-        // Preferencias de UI
         theme: state.theme,
         autoSaveEnabled: state.autoSaveEnabled,
         volume: state.volume,
         soundEnabled: state.soundEnabled,
         compactMode: state.compactMode,
       } : {
-        // Aunque autosave esté OFF, mantenemos las preferencias
-        // básicas para no perder la configuración de la UI.
         theme: state.theme,
         autoSaveEnabled: state.autoSaveEnabled,
         volume: state.volume,

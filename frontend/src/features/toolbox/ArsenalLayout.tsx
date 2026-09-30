@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useScanStore } from '../../core/store/useScanStore';
 import { PayloadsTool } from './PayloadsTool';
 import { VulnPayloadsTool } from './VulnPayloadsTool';
-import { ServicePayloadsTool } from './ServicePayloadsTool';
 import { DecodersTool } from './DecodersTool';
 import { ListenerTool } from './ListenerTool';
 import {
@@ -11,10 +10,7 @@ import {
   type SelectablePayload,
 } from '../../core/data/arsenal-types';
 
-// ==========================================================
-// TIPOS
-// ==========================================================
-type ArsenalTab = 'shells' | 'vulns' | 'services' | 'crypto' | 'listener';
+type ArsenalTab = 'shells' | 'vulns' | 'crypto' | 'listener';
 
 interface TabMeta {
   id: ArsenalTab;
@@ -26,18 +22,11 @@ interface TabMeta {
 const TABS: TabMeta[] = [
   { id: 'shells',   icon: '🐚', label: 'Shells',   color: 'emerald' },
   { id: 'vulns',    icon: '💉', label: 'Vulns',    color: 'red' },
-  { id: 'services', icon: '🎯', label: 'Services', color: 'cyan' },
   { id: 'crypto',   icon: '🔐', label: 'Crypto',   color: 'fuchsia' },
   { id: 'listener', icon: '🎧', label: 'Listener', color: 'purple' },
 ];
 
-// ==========================================================
-// COMPONENTE PRINCIPAL
-// ==========================================================
 export function ArsenalLayout() {
-  // ========================================================
-  // Store global (arsenal + placeholders)
-  // ========================================================
   const {
     arsenalSelectedId,
     setArsenalSelected,
@@ -52,35 +41,26 @@ export function ArsenalLayout() {
     redTeamNotes,
   } = useScanStore();
 
-  // ========================================================
-  // Estado local
-  // ========================================================
   const [activeTab, setActiveTab] = useState<ArsenalTab>('shells');
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetail, setShowDetail] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [noiseFilter, setNoiseFilter] = useState<'all' | 'stealth' | 'normal' | 'noisy'>('all');
+  
+  // FIX M1: Panel redimensionable
+  const [detailWidth, setDetailWidth] = useState(360);
+  const isResizing = useRef(false);
 
-  // Payload completo actual (cacheado del render de los hijos)
   const [selectedPayload, setSelectedPayload] = useState<SelectablePayload | null>(null);
-
-  // Payload que se va a inyectar en el ListenerTool
   const [injectedPayload, setInjectedPayload] = useState<string | null>(null);
 
-  // Ref al input de búsqueda para Ctrl+K
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // ========================================================
-  // Sync: cuando el store cambia el ID seleccionado,
-  // limpiamos el payload si ya no está en la lista actual.
-  // ========================================================
   useEffect(() => {
     if (!arsenalSelectedId) setSelectedPayload(null);
   }, [arsenalSelectedId]);
 
-  // ========================================================
-  // Atajo Ctrl+K: enfocar el buscador
-  // ========================================================
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -93,9 +73,6 @@ export function ArsenalLayout() {
     return () => document.removeEventListener('keydown', handler);
   }, []);
 
-  // ========================================================
-  // Handler: seleccionar un payload
-  // ========================================================
   const handleSelect = useCallback((payload: SelectablePayload) => {
     setSelectedPayload(payload);
     setArsenalSelected(payload.id);
@@ -103,9 +80,6 @@ export function ArsenalLayout() {
     setShowDetail(true);
   }, [setArsenalSelected, pushArsenalRecent]);
 
-  // ========================================================
-  // Handler: copiar el payload al portapapeles
-  // ========================================================
   const handleCopy = useCallback(async () => {
     if (!selectedPayload) return;
     try {
@@ -118,9 +92,12 @@ export function ArsenalLayout() {
     }
   }, [selectedPayload]);
 
-  // ========================================================
-  // Handler: enviar a bitácora
-  // ========================================================
+  // FIX M2: Auto-scroll y Toast
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
   const handleSendToNotes = useCallback(() => {
     if (!selectedPayload) return;
 
@@ -132,21 +109,43 @@ export function ArsenalLayout() {
     const entry = `\n### ${title}${toolLine}${noiseLine}\n\n\`\`\`bash\n${selectedPayload.fullContent}\n\`\`\`\n`;
 
     setRedTeamNotes(redTeamNotes + entry);
+    showToast('✅ Añadido a la bitácora!');
   }, [selectedPayload, setRedTeamNotes, redTeamNotes]);
 
-  // ========================================================
-  // Handler: enviar a Listener (solo shells)
-  // ========================================================
   const handleSendToListener = useCallback(() => {
     if (!selectedPayload || !selectedPayload.canSendToListener) return;
-
     setInjectedPayload(selectedPayload.fullContent);
     setActiveTab('listener');
   }, [selectedPayload]);
 
-  // ========================================================
-  // Render: contenido del tab activo
-  // ========================================================
+  // Funciones para el Resizer (M1)
+  const startResizing = useCallback(() => {
+    isResizing.current = true;
+  }, []);
+
+  const stopResizing = useCallback(() => {
+    isResizing.current = false;
+  }, []);
+
+  const resize = useCallback((mouseMoveEvent: MouseEvent) => {
+    if (isResizing.current) {
+      // Calculamos el ancho desde la derecha
+      const newWidth = document.body.clientWidth - mouseMoveEvent.clientX;
+      if (newWidth > 250 && newWidth < 800) {
+        setDetailWidth(newWidth);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("mousemove", resize);
+    window.addEventListener("mouseup", stopResizing);
+    return () => {
+      window.removeEventListener("mousemove", resize);
+      window.removeEventListener("mouseup", stopResizing);
+    };
+  }, [resize, stopResizing]);
+
   const renderTabContent = () => {
     if (activeTab === 'shells') {
       return (
@@ -174,29 +173,6 @@ export function ArsenalLayout() {
         />
       );
     }
-    if (activeTab === 'services') {
-      return (
-        <ServicePayloadsTool
-          onSelect={handleSelect}
-          selectedId={arsenalSelectedId}
-          searchQuery={searchQuery}
-          placeholders={{
-            TARGET: arsenalPlaceholders.TARGET,
-            USER: arsenalPlaceholders.USER,
-            PASS: arsenalPlaceholders.PASS,
-            HASH: arsenalPlaceholders.HASH,
-            DOMAIN: arsenalPlaceholders.DOMAIN,
-            LHOST: arsenalPlaceholders.LHOST,
-            LPORT: arsenalPlaceholders.LPORT,
-            COLLAB: arsenalPlaceholders.COLLAB,
-            PORT: arsenalPlaceholders.PORT,
-            INDEX: arsenalPlaceholders.INDEX,
-            ROLE_NAME: arsenalPlaceholders.ROLE_NAME,
-            INTERFACE: arsenalPlaceholders.INTERFACE,
-          }}
-        />
-      );
-    }
     if (activeTab === 'crypto') {
       return <DecodersTool />;
     }
@@ -215,9 +191,6 @@ export function ArsenalLayout() {
     return null;
   };
 
-  // ========================================================
-  // Render: historial y favoritos (para el panel de detalle)
-  // ========================================================
   const recentPayloadsInfo = useMemo(() => {
     return arsenalRecentIds.slice(0, 5);
   }, [arsenalRecentIds]);
@@ -225,10 +198,16 @@ export function ArsenalLayout() {
   const pinnedCount = arsenalPinnedIds.length;
 
   return (
-    <div className="flex flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950">
-      {/* ====================================================
-          Columna 1: Tabs verticales
-          ==================================================== */}
+    <div className="flex flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950 relative">
+      
+      {/* Toast Notification (M2) */}
+      {toastMessage && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 bg-emerald-100 dark:bg-emerald-900/80 text-emerald-800 dark:text-emerald-200 px-4 py-2 rounded shadow-lg font-bold text-xs animate-in fade-in slide-in-from-top-4">
+          {toastMessage}
+        </div>
+      )}
+
+      {/* Columna 1: Tabs verticales */}
       <aside className="w-20 shrink-0 bg-slate-100 dark:bg-slate-900/50 border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-3 gap-2">
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
@@ -249,7 +228,6 @@ export function ArsenalLayout() {
           );
         })}
 
-        {/* Spacer + botón colapsar detalle */}
         <div className="flex-1" />
         <button
           onClick={() => setShowDetail(v => !v)}
@@ -260,11 +238,8 @@ export function ArsenalLayout() {
         </button>
       </aside>
 
-      {/* ====================================================
-          Columna 2: Lista + búsqueda
-          ==================================================== */}
+      {/* Columna 2: Lista + búsqueda */}
       <div className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-950">
-        {/* Barra de búsqueda (oculta en tabs crypto y listener) */}
         {activeTab !== 'crypto' && activeTab !== 'listener' && (
           <div className="p-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center gap-2 shrink-0">
             <div className="flex-1 relative">
@@ -287,7 +262,6 @@ export function ArsenalLayout() {
               )}
             </div>
 
-            {/* Filtro de ruido (solo en vulns) */}
             {activeTab === 'vulns' && (
               <select
                 value={noiseFilter}
@@ -301,7 +275,6 @@ export function ArsenalLayout() {
               </select>
             )}
 
-            {/* Contador */}
             <span className="text-[9px] font-bold text-slate-500 whitespace-nowrap">
               {pinnedCount > 0 && `📌 ${pinnedCount} · `}
               {recentPayloadsInfo.length > 0 && `🕐 ${recentPayloadsInfo.length}`}
@@ -309,224 +282,219 @@ export function ArsenalLayout() {
           </div>
         )}
 
-        {/* Contenido del tab activo */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           {renderTabContent()}
         </div>
       </div>
 
-      {/* ====================================================
-          Columna 3: Panel de detalle (colapsable)
-          ==================================================== */}
+      {/* Columna 3: Panel de detalle (Resizable M1) */}
       {showDetail && (
-        <div className="w-[360px] shrink-0 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col overflow-hidden">
-          {selectedPayload ? (
-            <>
-              {/* Cabecera del detalle */}
-              <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shrink-0">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-lg">
-                        {CATEGORY_META[selectedPayload.category].icon}
-                      </span>
-                      <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
-                        {CATEGORY_META[selectedPayload.category].label}
-                      </span>
-                    </div>
-                    <h3 className="text-[12px] font-black text-slate-800 dark:text-white truncate">
-                      {selectedPayload.name}
-                    </h3>
-                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                      {selectedPayload.noise && (
-                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${NOISE_META[selectedPayload.noise].bg} ${NOISE_META[selectedPayload.noise].color}`}>
-                          {NOISE_META[selectedPayload.noise].label}
+        <>
+          {/* Handle de redimensionamiento */}
+          <div 
+            className="w-1 cursor-col-resize hover:bg-teal-500/50 bg-slate-200 dark:bg-slate-800 z-10 transition-colors"
+            onMouseDown={startResizing}
+          />
+          <div 
+            style={{ width: `${detailWidth}px` }} 
+            className="shrink-0 bg-white dark:bg-slate-900 flex flex-col overflow-hidden"
+          >
+            {selectedPayload ? (
+              <>
+                <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shrink-0">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-lg">
+                          {CATEGORY_META[selectedPayload.category].icon}
                         </span>
-                      )}
-                      {selectedPayload.tool && (
-                        <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono">
-                          {selectedPayload.tool}
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                          {CATEGORY_META[selectedPayload.category].label}
                         </span>
-                      )}
-                      {selectedPayload.tags?.slice(0, 3).map(tag => (
-                        <span key={tag} className="text-[8px] text-slate-400">#{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Botón de favorito */}
-                  <button
-                    onClick={() => toggleArsenalPin(selectedPayload.id)}
-                    title={arsenalPinnedIds.includes(selectedPayload.id) ? 'Quitar de favoritos' : 'Añadir a favoritos'}
-                    className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                      arsenalPinnedIds.includes(selectedPayload.id)
-                        ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-500'
-                        : 'text-slate-300 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
-                    }`}
-                  >
-                    ★
-                  </button>
-                </div>
-
-                {selectedPayload.description && (
-                  <p className="text-[10px] text-slate-500 italic leading-snug">
-                    {selectedPayload.description}
-                  </p>
-                )}
-              </div>
-
-              {/* Contenido del payload */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
-                {/* Payload completo */}
-                <div>
-                  <label className="text-[9px] font-bold uppercase text-slate-500 tracking-widest block mb-1.5">
-                    Contenido
-                  </label>
-                  <pre className="text-[10px] font-mono text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded p-2.5 whitespace-pre-wrap break-all leading-relaxed max-h-64 overflow-y-auto custom-scrollbar">
-                    {selectedPayload.fullContent}
-                  </pre>
-                </div>
-
-                {/* Placeholders editables */}
-                <details className="group">
-                  <summary className="text-[9px] font-bold uppercase text-slate-500 tracking-widest cursor-pointer hover:text-emerald-500 transition-colors flex items-center gap-1">
-                    <span className="transition-transform group-open:rotate-90">▶</span>
-                    Placeholders
-                  </summary>
-                  <div className="grid grid-cols-2 gap-1.5 mt-2 animate-in fade-in">
-                    <PlaceholderField
-                      label="LHOST"
-                      value={arsenalPlaceholders.LHOST}
-                      onChange={v => setArsenalPlaceholder('LHOST', v)}
-                    />
-                    <PlaceholderField
-                      label="LPORT"
-                      value={arsenalPlaceholders.LPORT}
-                      onChange={v => setArsenalPlaceholder('LPORT', v)}
-                    />
-                    <PlaceholderField
-                      label="TARGET"
-                      value={arsenalPlaceholders.TARGET}
-                      onChange={v => setArsenalPlaceholder('TARGET', v)}
-                    />
-                    <PlaceholderField
-                      label="USER"
-                      value={arsenalPlaceholders.USER}
-                      onChange={v => setArsenalPlaceholder('USER', v)}
-                    />
-                    <PlaceholderField
-                      label="PASS"
-                      value={arsenalPlaceholders.PASS}
-                      onChange={v => setArsenalPlaceholder('PASS', v)}
-                    />
-                    <PlaceholderField
-                      label="HASH"
-                      value={arsenalPlaceholders.HASH}
-                      onChange={v => setArsenalPlaceholder('HASH', v)}
-                    />
-                    <PlaceholderField
-                      label="DOMAIN"
-                      value={arsenalPlaceholders.DOMAIN}
-                      onChange={v => setArsenalPlaceholder('DOMAIN', v)}
-                    />
-                    <PlaceholderField
-                      label="COLLAB"
-                      value={arsenalPlaceholders.COLLAB}
-                      onChange={v => setArsenalPlaceholder('COLLAB', v)}
-                    />
-                    <PlaceholderField
-                      label="PORT"
-                      value={arsenalPlaceholders.PORT}
-                      onChange={v => setArsenalPlaceholder('PORT', v)}
-                    />
-                    <button
-                      onClick={resetArsenalPlaceholders}
-                      className="col-span-2 text-[9px] font-bold uppercase text-slate-500 hover:text-red-500 transition-colors py-1"
-                    >
-                      ↺ Reset placeholders
-                    </button>
-                  </div>
-                </details>
-
-                {/* Recientes */}
-                <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-2">
-                  <div>
-                    <label className="text-[9px] font-bold uppercase text-slate-500 tracking-widest block mb-1">
-                      🕐 Recientes
-                    </label>
-                    {recentPayloadsInfo.length === 0 ? (
-                      <p className="text-[10px] text-slate-400 italic">Sin payloads recientes</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-1">
-                        {recentPayloadsInfo.map(id => (
-                          <span
-                            key={id}
-                            className="text-[8px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded truncate max-w-[140px]"
-                            title={id}
-                          >
-                            {id.replace(/^[^:]+:/, '')}
+                      </div>
+                      <h3 className="text-[12px] font-black text-slate-800 dark:text-white truncate">
+                        {selectedPayload.name}
+                      </h3>
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        {selectedPayload.noise && (
+                          <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${NOISE_META[selectedPayload.noise].bg} ${NOISE_META[selectedPayload.noise].color}`}>
+                            {NOISE_META[selectedPayload.noise].label}
                           </span>
+                        )}
+                        {selectedPayload.tool && (
+                          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono">
+                            {selectedPayload.tool}
+                          </span>
+                        )}
+                        {selectedPayload.tags?.slice(0, 3).map(tag => (
+                          <span key={tag} className="text-[8px] text-slate-400">#{tag}</span>
                         ))}
                       </div>
-                    )}
+                    </div>
+
+                    <button
+                      onClick={() => toggleArsenalPin(selectedPayload.id)}
+                      title={arsenalPinnedIds.includes(selectedPayload.id) ? 'Quitar de favoritos' : 'Añadir a favoritos'}
+                      className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                        arsenalPinnedIds.includes(selectedPayload.id)
+                          ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-500'
+                          : 'text-slate-300 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
+                      }`}
+                    >
+                      ★
+                    </button>
+                  </div>
+
+                  {selectedPayload.description && (
+                    <p className="text-[10px] text-slate-500 italic leading-snug">
+                      {selectedPayload.description}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+                  <div>
+                    <label className="text-[9px] font-bold uppercase text-slate-500 tracking-widest block mb-1.5">
+                      Contenido
+                    </label>
+                    <pre className="text-[10px] font-mono text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded p-2.5 whitespace-pre-wrap break-all leading-relaxed max-h-64 overflow-y-auto custom-scrollbar">
+                      {selectedPayload.fullContent}
+                    </pre>
+                  </div>
+
+                  {selectedPayload.category !== 'vuln' || selectedPayload.category === 'vuln' ? (
+                    <details className="group">
+                      <summary className="text-[9px] font-bold uppercase text-slate-500 tracking-widest cursor-pointer hover:text-emerald-500 transition-colors flex items-center gap-1">
+                        <span className="transition-transform group-open:rotate-90">▶</span>
+                        Placeholders
+                      </summary>
+                      <div className="grid grid-cols-2 gap-1.5 mt-2 animate-in fade-in">
+                        <PlaceholderField
+                          label="LHOST"
+                          value={arsenalPlaceholders.LHOST}
+                          onChange={v => setArsenalPlaceholder('LHOST', v)}
+                        />
+                        <PlaceholderField
+                          label="LPORT"
+                          value={arsenalPlaceholders.LPORT}
+                          onChange={v => setArsenalPlaceholder('LPORT', v)}
+                        />
+                        <PlaceholderField
+                          label="TARGET"
+                          value={arsenalPlaceholders.TARGET}
+                          onChange={v => setArsenalPlaceholder('TARGET', v)}
+                        />
+                        <PlaceholderField
+                          label="USER"
+                          value={arsenalPlaceholders.USER}
+                          onChange={v => setArsenalPlaceholder('USER', v)}
+                        />
+                        <PlaceholderField
+                          label="PASS"
+                          value={arsenalPlaceholders.PASS}
+                          onChange={v => setArsenalPlaceholder('PASS', v)}
+                        />
+                        <PlaceholderField
+                          label="HASH"
+                          value={arsenalPlaceholders.HASH}
+                          onChange={v => setArsenalPlaceholder('HASH', v)}
+                        />
+                        <PlaceholderField
+                          label="DOMAIN"
+                          value={arsenalPlaceholders.DOMAIN}
+                          onChange={v => setArsenalPlaceholder('DOMAIN', v)}
+                        />
+                        <PlaceholderField
+                          label="COLLAB"
+                          value={arsenalPlaceholders.COLLAB}
+                          onChange={v => setArsenalPlaceholder('COLLAB', v)}
+                        />
+                        <PlaceholderField
+                          label="PORT"
+                          value={arsenalPlaceholders.PORT}
+                          onChange={v => setArsenalPlaceholder('PORT', v)}
+                        />
+                        <button
+                          onClick={resetArsenalPlaceholders}
+                          className="col-span-2 text-[9px] font-bold uppercase text-slate-500 hover:text-red-500 transition-colors py-1"
+                        >
+                          ↺ Reset placeholders
+                        </button>
+                      </div>
+                    </details>
+                  ) : null}
+
+                  <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-2">
+                    <div>
+                      <label className="text-[9px] font-bold uppercase text-slate-500 tracking-widest block mb-1">
+                        🕐 Recientes
+                      </label>
+                      {recentPayloadsInfo.length === 0 ? (
+                        <p className="text-[10px] text-slate-400 italic">Sin payloads recientes</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {recentPayloadsInfo.map(id => (
+                            <span
+                              key={id}
+                              className="text-[8px] font-mono bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded truncate max-w-[140px]"
+                              title={id}
+                            >
+                              {id.replace(/^[^:]+:/, '')}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Barra de acciones */}
-              <div className="border-t border-slate-200 dark:border-slate-800 p-2 space-y-1.5 shrink-0 bg-slate-50 dark:bg-slate-950">
-                <button
-                  onClick={handleCopy}
-                  className={`w-full text-[10px] font-bold uppercase px-3 py-2 rounded transition-colors ${
-                    copied
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50'
-                  }`}
-                >
-                  {copied ? '✓ Copiado' : '📋 Copiar al portapapeles'}
-                </button>
-
-                <button
-                  onClick={handleSendToNotes}
-                  className="w-full text-[10px] font-bold uppercase px-3 py-2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                >
-                  📝 Enviar a Bitácora
-                </button>
-
-                {selectedPayload.canSendToListener && (
+                <div className="border-t border-slate-200 dark:border-slate-800 p-2 space-y-1.5 shrink-0 bg-slate-50 dark:bg-slate-950">
                   <button
-                    onClick={handleSendToListener}
-                    className="w-full text-[10px] font-bold uppercase px-3 py-2 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
+                    onClick={handleCopy}
+                    className={`w-full text-[10px] font-bold uppercase px-3 py-2 rounded transition-colors ${
+                      copied
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50'
+                    }`}
                   >
-                    🎧 Enviar a Listener
+                    {copied ? '✓ Copiado' : '📋 Copiar al portapapeles'}
                   </button>
-                )}
+
+                  <button
+                    onClick={handleSendToNotes}
+                    className="w-full text-[10px] font-bold uppercase px-3 py-2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                  >
+                    📝 Enviar a Bitácora
+                  </button>
+
+                  {selectedPayload.canSendToListener && (
+                    <button
+                      onClick={handleSendToListener}
+                      className="w-full text-[10px] font-bold uppercase px-3 py-2 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
+                    >
+                      🎧 Enviar a Listener
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+                <span className="text-5xl mb-4 opacity-30">📌</span>
+                <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                  Sin selección
+                </h3>
+                <p className="text-[10px] text-slate-500 max-w-xs">
+                  Selecciona un payload de la lista para ver su contenido completo, copiarlo, enviarlo a la bitácora o inyectarlo en un listener.
+                </p>
               </div>
-            </>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
-              <span className="text-5xl mb-4 opacity-30">📌</span>
-              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
-                Sin selección
-              </h3>
-              <p className="text-[10px] text-slate-500 max-w-xs">
-                Selecciona un payload de la lista para ver su contenido completo, copiarlo, enviarlo a la bitácora o inyectarlo en un listener.
-              </p>
-              <div className="mt-4 text-[9px] text-slate-400 space-y-1">
-                <p>💡 <strong>Ctrl+K</strong> enfoca el buscador</p>
-                <p>⭐ Haz clic en ★ para marcar como favorito</p>
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-// ==========================================================
-// SUB-COMPONENTE: campo de placeholder
-// ==========================================================
 function PlaceholderField({
   label,
   value,

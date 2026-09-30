@@ -1,9 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 
-// ==========================================================
-// Tipo de operación de codificación
-// ==========================================================
 type EncodeOp =
   | 'b64_encode' | 'b64_decode'
   | 'url_encode' | 'url_decode'
@@ -14,10 +11,9 @@ type EncodeOp =
   | 'base32_encode' | 'base32_decode'
   | 'unicode_encode' | 'unicode_decode';
 
-// ==========================================================
-// Metadata de cada operación
-// ==========================================================
-const OPS: Record<EncodeOp, { label: string; icon: string; group: 'encode' | 'decode' | 'transform' }> = {
+type EncodeGroup = 'encode' | 'decode' | 'transform';
+
+const OPS: Record<EncodeOp, { label: string; icon: string; group: EncodeGroup }> = {
   b64_encode:      { label: 'Base64 Enc',  icon: '🔒', group: 'encode' },
   b64_decode:      { label: 'Base64 Dec',  icon: '🔓', group: 'decode' },
   url_encode:      { label: 'URL Enc',     icon: '🔒', group: 'encode' },
@@ -35,28 +31,22 @@ const OPS: Record<EncodeOp, { label: string; icon: string; group: 'encode' | 'de
   rot13:           { label: 'ROT13',       icon: '🔄', group: 'transform' },
 };
 
-// ==========================================================
-// Metadata de hashes para detección
-// ==========================================================
 const HASH_PATTERNS: Array<{ regex: RegExp; name: string; hashcatMode: string }> = [
-  { regex: /^[a-fA-F0-9]{32}$/,                         name: 'MD5',            hashcatMode: '0' },
-  { regex: /^[a-fA-F0-9]{40}$/,                         name: 'SHA1',           hashcatMode: '100' },
-  { regex: /^[a-fA-F0-9]{56}$/,                         name: 'SHA224',         hashcatMode: '1300' },
-  { regex: /^[a-fA-F0-9]{64}$/,                         name: 'SHA256',         hashcatMode: '1400' },
-  { regex: /^[a-fA-F0-9]{96}$/,                         name: 'SHA384',         hashcatMode: '10800' },
-  { regex: /^[a-fA-F0-9]{128}$/,                        name: 'SHA512',         hashcatMode: '1700' },
-  { regex: /^\$1\$[a-zA-Z0-9./]+\$[a-zA-Z0-9./]+$/,     name: 'MD5 Crypt',      hashcatMode: '500' },
-  { regex: /^\$2[aby]\$\d{2}\$[a-zA-Z0-9./]+$/,         name: 'Bcrypt',         hashcatMode: '3200' },
-  { regex: /^\$5\$[a-zA-Z0-9./]+\$[a-zA-Z0-9./]+$/,     name: 'SHA256 Crypt',   hashcatMode: '7400' },
-  { regex: /^\$6\$[a-zA-Z0-9./]+\$[a-zA-Z0-9./]+$/,     name: 'SHA512 Crypt',   hashcatMode: '1800' },
-  { regex: /^[a-fA-F0-9]{32}:[a-zA-Z0-9]+$/,            name: 'MD5 + Salt',     hashcatMode: '20' },
-  { regex: /^sha1\$[a-zA-Z0-9]+\$[a-fA-F0-9]{40}$/,     name: 'SHA1 + Salt',    hashcatMode: '120' },
-  { regex: /^\{SSHA\}[a-zA-Z0-9+/=]+$/,                 name: 'SSHA',           hashcatMode: '111' },
+  { regex: /^[a-fA-F0-9]{32}$/,                        name: 'MD5',           hashcatMode: '0' },
+  { regex: /^[a-fA-F0-9]{40}$/,                        name: 'SHA1',          hashcatMode: '100' },
+  { regex: /^[a-fA-F0-9]{56}$/,                        name: 'SHA224',        hashcatMode: '1300' },
+  { regex: /^[a-fA-F0-9]{64}$/,                        name: 'SHA256',        hashcatMode: '1400' },
+  { regex: /^[a-fA-F0-9]{96}$/,                        name: 'SHA384',        hashcatMode: '10800' },
+  { regex: /^[a-fA-F0-9]{128}$/,                       name: 'SHA512',        hashcatMode: '1700' },
+  { regex: /^\$1\$[a-zA-Z0-9./]+\$[a-zA-Z0-9./]+$/,    name: 'MD5 Crypt',     hashcatMode: '500' },
+  { regex: /^\$2[aby]\$\d{2}\$[a-zA-Z0-9./]+$/,        name: 'Bcrypt',        hashcatMode: '3200' },
+  { regex: /^\$5\$[a-zA-Z0-9./]+\$[a-zA-Z0-9./]+$/,    name: 'SHA256 Crypt',  hashcatMode: '7400' },
+  { regex: /^\$6\$[a-zA-Z0-9./]+\$[a-zA-Z0-9./]+$/,    name: 'SHA512 Crypt',  hashcatMode: '1800' },
+  { regex: /^[a-fA-F0-9]{32}:[a-zA-Z0-9]+$/,           name: 'MD5 + Salt',    hashcatMode: '20' },
+  { regex: /^sha1\$[a-zA-Z0-9]+\$[a-fA-F0-9]{40}$/,    name: 'SHA1 + Salt',   hashcatMode: '120' },
+  { regex: /^\{SSHA\}[a-zA-Z0-9+/=]+$/,                name: 'SSHA',          hashcatMode: '111' },
 ];
 
-// ==========================================================
-// Funciones de codificación/decodificación
-// ==========================================================
 function applyOp(input: string, op: EncodeOp): string {
   try {
     switch (op) {
@@ -75,14 +65,12 @@ function applyOp(input: string, op: EncodeOp): string {
       case 'unicode_encode': return Array.from(input).map(c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('');
       case 'unicode_decode': return input.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
       case 'rot13':          return input.replace(/[a-zA-Z]/g, c => String.fromCharCode((c <= 'Z' ? 90 : 122) >= c.charCodeAt(0) + 13 ? c.charCodeAt(0) + 13 : c.charCodeAt(0) - 13));
-      default:               return input;
     }
   } catch (err) {
     return `ERROR: ${err instanceof Error ? err.message : 'operación inválida'}`;
   }
 }
 
-// Base32 helpers (RFC 4648)
 function base32Encode(input: string): string {
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
   const bytes = new TextEncoder().encode(input);
@@ -109,35 +97,26 @@ function base32Decode(input: string): string {
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
 
-// ==========================================================
-// Componente principal
-// ==========================================================
 export function DecodersTool() {
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
   const [detectedType, setDetectedType] = useState('Texto Plano');
   const [hashMode, setHashMode] = useState('0');
   const [hashWordlist, setHashWordlist] = useState('/usr/share/wordlists/rockyou.txt');
-  const [activeGroup, setActiveGroup] = useState<'encode' | 'decode' | 'transform'>('decode');
+  const [activeGroup, setActiveGroup] = useState<EncodeGroup>('decode');
   const [copied, setCopied] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
-  // ========================================================
-  // Auto-detección del tipo de input
-  // ========================================================
   useEffect(() => {
     const text = inputText.trim();
     if (!text) {
       setDetectedType('Texto Plano');
       return;
     }
-
-    // JWT
     if (text.split('.').length === 3 && text.startsWith('eyJ')) {
       setDetectedType('JSON Web Token (JWT)');
       return;
     }
-
-    // Hashes
     for (const p of HASH_PATTERNS) {
       if (p.regex.test(text)) {
         setDetectedType(`Hash: ${p.name}`);
@@ -145,57 +124,38 @@ export function DecodersTool() {
         return;
       }
     }
-
-    // Base64 (heurística simple)
     if (/^[A-Za-z0-9+/=]+$/.test(text) && text.length % 4 === 0 && !text.includes(' ')) {
       setDetectedType('Posible Base64');
       return;
     }
-
-    // Base32
     if (/^[A-Z2-7]+=*$/.test(text) && text.length % 8 === 0) {
       setDetectedType('Posible Base32');
       return;
     }
-
-    // URL encoded
     if (text.includes('%') && text.length > 5) {
       setDetectedType('URL Encoded');
       return;
     }
-
-    // Hex
     if (/^[a-fA-F0-9\s]+$/.test(text) && text.replace(/\s/g, '').length % 2 === 0) {
       setDetectedType('Posible Hex');
       return;
     }
-
-    // Binary
     if (/^[01\s]+$/.test(text)) {
       setDetectedType('Posible Binario');
       return;
     }
-
-    // Unicode escape
     if (/\\u[0-9a-fA-F]{4}/.test(text)) {
       setDetectedType('Unicode Escape');
       return;
     }
-
     setDetectedType('Texto Plano');
   }, [inputText]);
 
-  // ========================================================
-  // Aplicar operación
-  // ========================================================
   const handleOp = (op: EncodeOp) => {
     const result = applyOp(inputText, op);
     setOutputText(result);
   };
 
-  // ========================================================
-  // JWT decode
-  // ========================================================
   const handleJWT = () => {
     try {
       const parts = inputText.split('.');
@@ -208,15 +168,21 @@ export function DecodersTool() {
     }
   };
 
-  // ========================================================
-  // Utilidades de UI
-  // ========================================================
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {}
+  };
+
+  const pasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      setInputText(text);
+    } catch {
+      alert("No se pudo pegar del portapapeles.");
+    }
   };
 
   const swapInputOutput = () => {
@@ -240,9 +206,32 @@ export function DecodersTool() {
     } catch {}
   };
 
-  // ========================================================
-  // Filtrar operaciones por grupo
-  // ========================================================
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const onDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  }, []);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target && typeof event.target.result === 'string') {
+          setInputText(event.target.result);
+        }
+      };
+      reader.readAsText(file);
+    }
+  }, []);
+
   const opsInGroup = useMemo(() => {
     return (Object.keys(OPS) as EncodeOp[]).filter(op => OPS[op].group === activeGroup);
   }, [activeGroup]);
@@ -250,10 +239,7 @@ export function DecodersTool() {
   const isHash = detectedType.startsWith('Hash:');
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto custom-scrollbar p-3">
-      {/* ====================================================
-          Cabecera
-          ==================================================== */}
+    <div className="flex flex-col h-full overflow-y-auto custom-scrollbar p-3 relative">
       <div className="flex justify-between items-center border-b border-slate-200 dark:border-slate-800 pb-1.5 mb-3">
         <h3 className="text-[10px] tracking-widest font-black text-fuchsia-600 dark:text-fuchsia-400 uppercase">
           🔐 Criptografía
@@ -263,17 +249,31 @@ export function DecodersTool() {
         </span>
       </div>
 
-      {/* ====================================================
-          Input
-          ==================================================== */}
-      <textarea
-        value={inputText}
-        onChange={(e) => setInputText(e.target.value)}
-        placeholder="Pega un Hash, Base64, URL, JWT, Hex, Binario..."
-        className="w-full h-24 p-2 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md outline-none dark:text-slate-200 font-mono resize-none shrink-0"
-      />
+      <div
+        className="relative shrink-0"
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        <textarea
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          placeholder="Pega un Hash, Base64, URL, JWT, Hex... o arrastra un archivo .txt aquí"
+          className={`w-full h-24 p-2 pr-12 text-xs border rounded-md outline-none font-mono resize-none transition-colors ${
+            isDragging
+              ? 'bg-fuchsia-50 border-fuchsia-400 dark:bg-fuchsia-900/20 dark:border-fuchsia-500'
+              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 dark:text-slate-200'
+          }`}
+        />
+        <button
+          onClick={pasteFromClipboard}
+          className="absolute top-2 right-2 text-[10px] font-bold uppercase bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+          title="Pegar"
+        >
+          📋
+        </button>
+      </div>
 
-      {/* Botones de acción rápida para input */}
       <div className="flex gap-1 my-2 shrink-0">
         <button
           onClick={clearAll}
@@ -297,9 +297,6 @@ export function DecodersTool() {
         </button>
       </div>
 
-      {/* ====================================================
-          Tabs de operaciones
-          ==================================================== */}
       <div className="flex border-b border-slate-200 dark:border-slate-800 mb-2 shrink-0">
         {(['encode', 'decode', 'transform'] as const).map(group => (
           <button
@@ -316,9 +313,6 @@ export function DecodersTool() {
         ))}
       </div>
 
-      {/* ====================================================
-          Grid de operaciones
-          ==================================================== */}
       <div className="grid grid-cols-2 gap-1.5 mb-3 shrink-0">
         {opsInGroup.map(op => (
           <button
@@ -331,9 +325,6 @@ export function DecodersTool() {
         ))}
       </div>
 
-      {/* ====================================================
-          Output
-          ==================================================== */}
       <div className="relative shrink-0">
         <textarea
           value={outputText}
@@ -351,9 +342,6 @@ export function DecodersTool() {
         )}
       </div>
 
-      {/* ====================================================
-          Generador Hashcat (solo si es hash)
-          ==================================================== */}
       <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
         <h3 className="text-[10px] tracking-widest font-black text-rose-600 dark:text-rose-400 uppercase mb-2 flex items-center gap-2">
           🔨 Generador Hashcat

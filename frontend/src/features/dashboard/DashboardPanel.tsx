@@ -123,6 +123,10 @@ export function DashboardPanel() {
   const [filterUp, setFilterUp] = useState(false)
   const [filterVuln, setFilterVuln] = useState(false)
   const [filterWeb, setFilterWeb] = useState(false)
+
+  const [filterOS, setFilterOS] = useState<'all'|'windows'|'linux'>('all')
+  const [filterCritPorts, setFilterCritPorts] = useState(false)
+
   const [visibleCount, setVisibleCount] = useState(20)
   const [expandedPorts, setExpandedPorts] = useState<Record<string, boolean>>({})
   const [expandedHosts, setExpandedHosts] = useState<Record<string, boolean>>({})
@@ -133,13 +137,26 @@ export function DashboardPanel() {
   // ==========================================================
   const filteredData = (parsedData || []).filter(host => {
     if (filterUp && host.status !== 'up') return false
+
     if (filterVuln) {
       const isVuln = (host.ports || []).some(p => detectCVEs(p.service, p.version).length > 0)
       if (!isVuln) return false
     }
+
     if (filterWeb) {
       const hasWeb = (host.ports || []).some(p => ['80', '443', '8080', '8443'].includes(p.portid) && p.state === 'open')
       if (!hasWeb) return false
+    }
+
+    if (filterOS !== 'all') {
+       const osL = (host.os || '').toLowerCase();
+       if (filterOS === 'windows' && !osL.includes('win')) return false;
+       if (filterOS === 'linux' && !osL.includes('linux')) return false;
+    }
+
+    if (filterCritPorts) {
+        const hasCrit = (host.ports || []).some(p => ['21', '22', '23', '445', '3389'].includes(p.portid) && p.state === 'open')
+        if (!hasCrit) return false
     }
 
     if (!search) return true
@@ -532,13 +549,16 @@ export function DashboardPanel() {
           </div>
         </div>
 
+        {/* FIX M6 COMPLETO: RECHARTS CON SINTAXIS REACT LIMPIA */}
         <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center">
           <span className="text-[9px] font-bold text-slate-500 uppercase">Estado Puertos</span>
           <div className="h-16 w-full mt-1">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={portChartData} innerRadius={15} outerRadius={25} paddingAngle={5} dataKey="value" stroke="none">
-                  {portChartData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
+                <Pie data={portChartData} dataKey="value" innerRadius={15} outerRadius={25} paddingAngle={5} stroke="none">
+                  {portChartData.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
                 </Pie>
                 <RechartsTooltip contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} />
               </PieChart>
@@ -551,8 +571,10 @@ export function DashboardPanel() {
           <div className="h-16 w-full mt-1">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie data={osChartData} innerRadius={0} outerRadius={25} dataKey="value" stroke="none">
-                  {osChartData.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[(index + 3) % COLORS.length]} />)}
+                <Pie data={osChartData} dataKey="value" innerRadius={0} outerRadius={25} stroke="none">
+                  {osChartData.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[(index + 3) % COLORS.length]} />
+                  ))}
                 </Pie>
                 <RechartsTooltip contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} />
               </PieChart>
@@ -594,10 +616,21 @@ export function DashboardPanel() {
           className="flex-1 px-3 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-[11px] outline-none dark:text-white"
         />
 
-        <div className="flex gap-1.5">
+        <div className="flex gap-1.5 flex-wrap">
           <button onClick={() => { setFilterUp(!filterUp); setVisibleCount(20) }} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterUp ? 'bg-[#0b282c] border-[#0b282c] text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🟢 Activos</button>
           <button onClick={() => { setFilterWeb(!filterWeb); setVisibleCount(20) }} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterWeb ? 'bg-[#0b282c] border-[#0b282c] text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🌐 Web</button>
           <button onClick={() => { setFilterVuln(!filterVuln); setVisibleCount(20) }} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterVuln ? 'bg-red-600 border-red-600 text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🚨 CVEs</button>
+
+          <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
+
+          <select value={filterOS} onChange={(e) => {setFilterOS(e.target.value as any); setVisibleCount(20)}} className="px-2 py-1 text-[10px] font-bold uppercase rounded-full border border-slate-200 dark:border-slate-700 bg-transparent text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 outline-none">
+              <option value="all">🖥 OS: Todos</option>
+              <option value="windows">🪟 OS: Windows</option>
+              <option value="linux">🐧 OS: Linux</option>
+          </select>
+
+          <button onClick={() => { setFilterCritPorts(!filterCritPorts); setVisibleCount(20) }} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterCritPorts ? 'bg-orange-600 border-orange-600 text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🔥 Pts Críticos</button>
+
           <button onClick={toggleCompactMode} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${compactMode ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>≡ Comp</button>
           <label className={`flex items-center space-x-1.5 cursor-pointer px-3 py-1 rounded-full border transition-colors ${historyData.length > 0 ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-200 hover:bg-teal-100' : 'opacity-50 border-slate-200'}`}>
             <input type="checkbox" checked={showDiff} disabled={historyData.length === 0} onChange={() => setShowDiff(!showDiff)} className="rounded w-3 h-3 accent-[#0b282c]" />

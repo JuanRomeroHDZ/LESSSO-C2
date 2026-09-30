@@ -1,28 +1,3 @@
-// ==========================================================
-// LESSSO C2 — Dataset de Reverse Shells
-// ----------------------------------------------------------
-// Basado en el dataset de revshells.com (open source).
-// Placeholders: {LHOST} y {LPORT} se sustituyen en runtime.
-//
-// Cada shell tiene:
-//   - id: identificador único
-//   - name: nombre legible
-//   - platform: linux | windows | macos | web | other
-//   - type: reverse | bind | msf | other
-//   - payload: string con {LHOST} y {LPORT}
-//   - description: (opcional) notas de uso
-//   - tags: (opcional) para búsqueda
-//
-// Utilidades incluidas:
-//   - renderShell(shell, lhost, lport)  → sustituye placeholders
-//   - filterShellsByPlatform(platform)  → filtra por SO
-//   - searchShells(query)               → búsqueda por nombre/tags
-//   - searchShellsFuzzy(query)          → búsqueda fuzzy (bht → bash-tcp)
-//   - groupShellsByPlatform()           → agrupa por SO
-//   - countShellsByPlatform()           → cuenta por SO (para badges)
-//   - getPlatformMeta(platform)         → metadata visual por SO
-// ==========================================================
-
 export type ShellPlatform = 'linux' | 'windows' | 'macos' | 'web' | 'other';
 export type ShellType = 'reverse' | 'bind' | 'msf' | 'other';
 
@@ -36,20 +11,15 @@ export interface ReverseShell {
   tags?: string[];
 }
 
-// ==========================================================
-// Metadata visual por plataforma
-// ==========================================================
-export const PLATFORM_META: Record<ShellPlatform, { label: string; icon: string; color: string }> = {
-  linux:   { label: 'Linux',   icon: '🐧', color: 'text-emerald-500' },
-  windows: { label: 'Windows', icon: '🪟', color: 'text-blue-500' },
-  macos:   { label: 'macOS',   icon: '🍎', color: 'text-slate-500' },
-  web:     { label: 'Web',     icon: '🌐', color: 'text-orange-500' },
-  other:   { label: 'Otros',   icon: '🔧', color: 'text-slate-400' },
+export const PLATFORM_META: Record<ShellPlatform | 'msf', { label: string; icon: string; color: string }> = {
+  linux:   { label: 'Linux',      icon: '🐧', color: 'text-emerald-500' },
+  windows: { label: 'Windows',    icon: '🪟', color: 'text-blue-500' },
+  macos:   { label: 'macOS',      icon: '🍎', color: 'text-slate-500' },
+  web:     { label: 'Web',        icon: '🌐', color: 'text-orange-500' },
+  other:   { label: 'Otros',      icon: '🔧', color: 'text-slate-400' },
+  msf:     { label: 'Metasploit', icon: '💥', color: 'text-purple-500' },
 };
 
-// ==========================================================
-// SCRIPTING LANGUAGES (Linux / Cross-platform)
-// ==========================================================
 const LINUX_SHELLS: ReverseShell[] = [
   {
     id: 'bash-tcp',
@@ -258,9 +228,6 @@ const LINUX_SHELLS: ReverseShell[] = [
   },
 ];
 
-// ==========================================================
-// WINDOWS SHELLS
-// ==========================================================
 const WINDOWS_SHELLS: ReverseShell[] = [
   {
     id: 'powershell-tcpclient',
@@ -315,9 +282,6 @@ const WINDOWS_SHELLS: ReverseShell[] = [
   },
 ];
 
-// ==========================================================
-// METASPLOIT PAYLOADS
-// ==========================================================
 const MSF_PAYLOADS: ReverseShell[] = [
   {
     id: 'msf-windows-x86',
@@ -417,113 +381,52 @@ const MSF_PAYLOADS: ReverseShell[] = [
   },
 ];
 
-// ==========================================================
-// EXPORT AGREGADO
-// ==========================================================
 export const REVERSE_SHELLS: ReverseShell[] = [
   ...LINUX_SHELLS,
   ...WINDOWS_SHELLS,
   ...MSF_PAYLOADS,
 ];
 
-// ==========================================================
-// UTILIDADES
-// ==========================================================
-
-/**
- * Sustituye los placeholders {LHOST} y {LPORT} en el payload
- * de un shell.
- */
 export function renderShell(shell: ReverseShell, lhost: string, lport: string): string {
   return shell.payload
     .replace(/\{LHOST\}/g, lhost)
     .replace(/\{LPORT\}/g, lport);
 }
 
-/**
- * Filtra los shells por plataforma.
- */
-export function filterShellsByPlatform(platform: ShellPlatform | 'all'): ReverseShell[] {
+export function filterShellsByPlatform(platform: ShellPlatform | 'msf' | 'all'): ReverseShell[] {
   if (platform === 'all') return REVERSE_SHELLS;
-  return REVERSE_SHELLS.filter(s => s.platform === platform);
+  if (platform === 'msf') return REVERSE_SHELLS.filter(s => s.type === 'msf');
+  return REVERSE_SHELLS.filter(s => s.platform === platform && s.type !== 'msf');
 }
 
-/**
- * Búsqueda lineal simple: matchea si el query está contenido
- * en el nombre, id o tags.
- */
-export function searchShells(query: string): ReverseShell[] {
-  const q = query.toLowerCase();
-  return REVERSE_SHELLS.filter(s =>
-    s.name.toLowerCase().includes(q) ||
-    s.id.toLowerCase().includes(q) ||
-    (s.tags || []).some(t => t.toLowerCase().includes(q))
-  );
-}
-
-/**
- * Búsqueda fuzzy: cada carácter del query aparece en orden en
- * el nombre, id o tags del shell. Ej: "bht" matchea "bash-tcp".
- *
- * Combina match directo + fuzzy.
- */
-export function searchShellsFuzzy(query: string): ReverseShell[] {
-  if (!query.trim()) return REVERSE_SHELLS;
-
-  const q = query.toLowerCase();
-  const tokens = q.split(/\s+/).filter(Boolean);
-
-  return REVERSE_SHELLS.filter(shell => {
-    const searchable = [
-      shell.name,
-      shell.id,
-      shell.platform,
-      ...(shell.tags || []),
-    ].join(' ').toLowerCase();
-
-    // Todas las "palabras" del query deben matchear
-    return tokens.every(token => {
-      // 1. Match directo
-      if (searchable.includes(token)) return true;
-      // 2. Fuzzy: cada carácter del token aparece en orden
-      let i = 0;
-      for (let j = 0; j < searchable.length && i < token.length; j++) {
-        if (searchable[j] === token[i]) i++;
-      }
-      return i === token.length;
-    });
-  });
-}
-
-/**
- * Agrupa los shells por plataforma.
- */
-export function groupShellsByPlatform(): Record<ShellPlatform, ReverseShell[]> {
-  const groups: Record<ShellPlatform, ReverseShell[]> = {
+export function groupShellsByPlatform(): Record<ShellPlatform | 'msf', ReverseShell[]> {
+  const groups: Record<ShellPlatform | 'msf', ReverseShell[]> = {
     linux: [],
     windows: [],
     macos: [],
     web: [],
     other: [],
+    msf: [],
   };
-  REVERSE_SHELLS.forEach(s => groups[s.platform].push(s));
+  REVERSE_SHELLS.forEach(s => {
+    if (s.type === 'msf') {
+      groups.msf.push(s);
+    } else {
+      groups[s.platform].push(s);
+    }
+  });
   return groups;
 }
 
-/**
- * Cuenta los shells por plataforma. Útil para badges.
- */
 export function countShellsByPlatform(): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const shell of REVERSE_SHELLS) {
-    counts[shell.platform] = (counts[shell.platform] || 0) + 1;
+    const key = shell.type === 'msf' ? 'msf' : shell.platform;
+    counts[key] = (counts[key] || 0) + 1;
   }
   return counts;
 }
 
-/**
- * Obtiene la metadata visual de una plataforma.
- */
-export function getPlatformMeta(platform: ShellPlatform): { label: string; icon: string; color: string } {
+export function getPlatformMeta(platform: ShellPlatform | 'msf'): { label: string; icon: string; color: string } {
   return PLATFORM_META[platform] || PLATFORM_META.other;
 }

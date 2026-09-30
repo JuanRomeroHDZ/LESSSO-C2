@@ -4,7 +4,7 @@ import 'reactflow/dist/style.css'
 import { useScanStore } from '../../core/store/useScanStore'
 
 export function TopologyPanel() {
-  const { parsedData, isScanning } = useScanStore()
+  const { parsedData, isScanning, theme } = useScanStore()
 
   const { nodes, edges, isTrimmed } = useMemo(() => {
     if (!parsedData || parsedData.length === 0) return { nodes: [], edges: [], isTrimmed: false }
@@ -25,11 +25,10 @@ export function TopologyPanel() {
       const osLower = (host.os || '').toLowerCase();
       const openPorts = (host.ports || []).filter(p => p.state === 'open').map(p => p.portid);
       
-      // Inteligencia de Iconos por Puertos/Servicios
       let osIcon = '📱'; let borderColor = '#cbd5e1';
       
-      if (openPorts.includes('80') || openPorts.includes('443') || openPorts.includes('8080')) { osIcon = '🌐'; } 
-      else if (openPorts.includes('3306') || openPorts.includes('5432') || openPorts.includes('1433')) { osIcon = '🗄️'; } 
+      if (openPorts.includes('80') || openPorts.includes('443') || openPorts.includes('8080')) { osIcon = '🌐'; }  
+      else if (openPorts.includes('3306') || openPorts.includes('5432') || openPorts.includes('1433')) { osIcon = '🗄'; }  
       else if (osLower.includes('cisco') || osLower.includes('router') || openPorts.includes('23')) { osIcon = '🖲'; borderColor = '#10b981'; }
       else if (osLower.includes('linux')) { osIcon = '🐧'; borderColor = '#f59e0b'; }
       else if (osLower.includes('windows')) { osIcon = '🪟'; borderColor = '#3b82f6'; }
@@ -75,8 +74,8 @@ export function TopologyPanel() {
   if (isScanning && (!parsedData || parsedData.length === 0)) {
     return (
       <div className="bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center h-full min-h-[500px]">
-         <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-         <p className="text-slate-500 font-mono text-sm uppercase tracking-widest font-bold">Generando Mapa de Nodos...</p>
+        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-500 font-mono text-sm uppercase tracking-widest font-bold">Generando Mapa de Nodos...</p>
       </div>
     )
   }
@@ -101,9 +100,8 @@ export function TopologyPanel() {
         }
       `}</style>
 
-      {/* BOTONERA TOPOLOGÍA */}
       <div className="absolute top-4 left-4 z-20 flex gap-2 print:hidden">
-         <button onClick={handlePrint} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded shadow-lg hover:bg-indigo-500 transition-colors">Imprimir Topología</button>
+        <button onClick={handlePrint} className="px-3 py-1.5 bg-indigo-600 text-white text-[10px] font-bold uppercase rounded shadow-lg hover:bg-indigo-500 transition-colors">Imprimir Topología</button>
       </div>
 
       {isTrimmed && (
@@ -114,10 +112,22 @@ export function TopologyPanel() {
       
       <div className="w-full h-full print-force-colors">
         <ReactFlow nodes={nodes} edges={edges} fitView attributionPosition="bottom-left" onlyRenderVisibleElements={false}>
-          {/* AQUÍ SE APLICA LA CORRECCIÓN: BackgroundVariant.Dots */}
-          <Background color="#475569" gap={16} variant={BackgroundVariant.Dots} />
+          
+          {/* FIX M7 COMPLETO: SINTAXIS REACT LIMPIA */}
+          <Background 
+            color={theme === 'dark' ? '#334155' : '#cbd5e1'} 
+            gap={16} 
+            variant={BackgroundVariant.Dots} 
+          />
+          
           <Controls className="bg-white dark:bg-slate-800 fill-slate-700 dark:fill-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm" />
-          <MiniMap className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm" nodeColor={(n) => n.style?.borderColor as string || '#818cf8'} />
+          
+          <MiniMap 
+            className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-sm" 
+            nodeColor={(n) => (n.style?.borderColor as string) || '#818cf8'} 
+            maskColor={theme === 'dark' ? 'rgba(15, 23, 42, 0.7)' : 'rgba(241, 245, 249, 0.7)'}
+          />
+
         </ReactFlow>
       </div>
     </section>
