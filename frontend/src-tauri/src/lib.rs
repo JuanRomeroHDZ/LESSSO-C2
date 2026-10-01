@@ -35,6 +35,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, Ordering};
 
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::{

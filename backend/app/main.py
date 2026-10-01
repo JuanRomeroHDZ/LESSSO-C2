@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(title="LESSSO C2 API", version="0.1.9", lifespan=lifespan)
+app = FastAPI(title="LESSSO C2 API", version="0.1.10", lifespan=lifespan)
 
 
 # ==========================================================
