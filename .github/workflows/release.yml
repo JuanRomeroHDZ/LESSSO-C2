@@ -25,44 +25,45 @@ jobs:
       matrix:
         include:
           - platform: 'ubuntu-22.04'
-            args: '--target x86_64-unknown-linux-gnu'
+            args: ''
             label: 'linux-x64'
           - platform: 'windows-latest'
-            args: '--target x86_64-pc-windows-msvc'
+            args: ''
             label: 'windows-x64'
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
-            label: 'macos-x64'
           - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
             label: 'macos-arm64'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+            label: 'macos-x64'
 
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Linux dependencies
+      - name: Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
+            libappindicator3-dev \
             librsvg2-dev \
             patchelf \
             libssl-dev \
             build-essential \
             curl \
             wget \
-            file
+            file \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev
 
-      - name: Install Windows dependencies
+      - name: Windows dependencies
         if: matrix.platform == 'windows-latest'
         shell: pwsh
-        run: |
-          choco install nsis -y --no-progress
+        run: choco install nsis -y --no-progress
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -95,22 +96,30 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'LESSSO C2 ${{ github.ref_name }}'
           releaseBody: |
-            Release automatico de LESSSO C2.
+            Release automático de LESSSO C2.
 
-            Artefactos:
-            - Linux: .deb, .rpm, .AppImage
-            - Windows: .msi, .exe
-            - macOS: .dmg (Intel + Apple Silicon)
+            ## Artefactos
 
-            Instalacion Linux:
-              sudo dpkg -i lessso-c2_*_amd64.deb
-              sudo apt-get install -f
+            - **Linux**: `.deb`, `.rpm`, `.AppImage`
+            - **Windows**: `.msi`, `.exe`
+            - **macOS**: `.dmg` (Intel + Apple Silicon)
 
-            Instalacion macOS:
-              Abrir el .dmg y arrastrar a Aplicaciones.
-              Si macOS bloquea: clic derecho -> Abrir.
+            ## Instalación
 
-            Dependencias: nmap, openvpn, pkexec, wl-clipboard
-          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft == 'true' || false }}
-          prerelease: false
-          args: ${{ matrix.args }}
+            ### Linux (Debian/Ubuntu)
+            sudo dpkg -i lessso-c2_*_amd64.deb
+            sudo apt-get install -f
+
+            ### macOS
+            Abrir el `.dmg` y arrastrar a Aplicaciones.
+            Si macOS bloquea: clic derecho → Abrir.
+
+            ### Windows
+            Ejecutar el `.msi` o el `.exe`.
+
+            ## Dependencias del sistema
+
+            - Linux: `nmap`, `openvpn`, `pkexec`, `wl-clipboard`
+              releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft == 'true' }}
+              prerelease: false
+              args: ${{ matrix.args }}

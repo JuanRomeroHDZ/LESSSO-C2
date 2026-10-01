@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useScanStore } from '../../core/store/useScanStore';
+import { ExamTimer } from './ExamTimer';
 
 interface HeaderProps {
   setIsTerminalOpen: (v: boolean) => void;
@@ -97,6 +98,8 @@ export function Header({ setIsTerminalOpen }: HeaderProps) {
         </div>
       </div>
       <div className="flex items-center gap-4">
+        <ExamTimer />
+
         <label className="flex items-center space-x-1.5 cursor-pointer bg-orange-50 dark:bg-orange-900/20 px-3 py-1.5 rounded-lg border border-orange-200 dark:border-orange-800/50 transition-colors hover:bg-orange-100 dark:hover:bg-orange-900/40">
           <input type="checkbox" checked={useRustScan} onChange={() => setField('useRustScan', !useRustScan)} className="rounded text-orange-500 w-3.5 h-3.5 accent-orange-500" />
           <span className="text-[11px] font-black uppercase text-orange-600 dark:text-orange-400 tracking-wide">⚡ RustScan</span>

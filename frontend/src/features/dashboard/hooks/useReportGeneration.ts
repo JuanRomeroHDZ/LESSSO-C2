@@ -3,6 +3,7 @@ import { save, open } from '@tauri-apps/plugin-dialog'
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs'
 import type { HostInfo, VaultCred, PortInfo } from '../../../core/store/useScanStore'
 import type { CveMatch, Severity } from '../utils/cve'
+import { useUiStore, type PhaseLogEntry } from '../../../core/store/uiStore'
 // import { detectCVEs } from '../utils/cve'
 import type { ReportSignature } from '../../../core/store/uiStore'
 import {
@@ -82,6 +83,12 @@ interface ScanMetrics {
     low: number
     unknown: number
   }
+}
+
+interface TimelineSnapshot {
+  examStartAt: number | null
+  examDurationMs: number
+  phaseLog: PhaseLogEntry[]
 }
 
 // ==========================================================
@@ -384,6 +391,73 @@ function buildHashMd(hash: string): string {
 }
 
 // ==========================================================
+// TIMELINE DEL EXAMEN
+// ==========================================================
+function formatDuration(ms?: number): string {
+  if (!ms || ms <= 0) return '—'
+  const totalSec = Math.floor(ms / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+function buildTimelineMd(snap: TimelineSnapshot): string {
+  if (!snap.examStartAt || snap.phaseLog.length === 0) return ''
+  const startedAt = new Date(snap.examStartAt).toISOString()
+
+  let md = `## Timeline del Examen\n\n`
+  md += `| Campo | Valor |\n`
+  md += `|---|---|\n`
+  md += `| **Inicio del examen (UTC)** | \`${startedAt}\` |\n`
+  md += `| **Duración configurada** | ${(snap.examDurationMs / 3_600_000).toFixed(1)} h |\n`
+  md += `| **Fases registradas** | ${snap.phaseLog.length} |\n\n`
+
+  md += `| Fase | Inicio (UTC) | Fin (UTC) | Duración |\n`
+  md += `|---|---|---|---|\n`
+  for (const p of snap.phaseLog) {
+    const dur = formatDuration(p.durationMs)
+    const fin = p.endedAt ? `\`${p.endedAt}\`` : '—'
+    md += `| **${p.phase.toUpperCase()}** | \`${p.startedAt}\` | ${fin} | ${dur} |\n`
+  }
+  md += `\n`
+  return md
+}
+
+function buildTimelineHtml(snap: TimelineSnapshot): string {
+  if (!snap.examStartAt || snap.phaseLog.length === 0) return ''
+  const startedAt = new Date(snap.examStartAt).toISOString()
+
+  let html = `<h2>Timeline del Examen</h2>`
+  html += `<div class="section">`
+  html += `<div class="meta-grid">
+    <div class="meta-item"><span class="meta-label">Inicio del examen (UTC)</span><span class="meta-value">${escapeHtml(startedAt)}</span></div>
+    <div class="meta-item"><span class="meta-label">Duración configurada</span><span class="meta-value">${(snap.examDurationMs / 3_600_000).toFixed(1)} h</span></div>
+    <div class="meta-item"><span class="meta-label">Fases registradas</span><span class="meta-value">${snap.phaseLog.length}</span></div>
+  </div>`
+  html += `<table style="margin-top:16px">
+    <thead><tr>
+      <th style="width:140px">Fase</th>
+      <th>Inicio (UTC)</th>
+      <th>Fin (UTC)</th>
+      <th style="width:130px">Duración</th>
+    </tr></thead>
+    <tbody>`
+  for (const p of snap.phaseLog) {
+    html += `<tr>
+      <td><strong>${escapeHtml(p.phase.toUpperCase())}</strong></td>
+      <td><code>${escapeHtml(p.startedAt)}</code></td>
+      <td>${p.endedAt ? `<code>${escapeHtml(p.endedAt)}</code>` : '—'}</td>
+      <td>${escapeHtml(formatDuration(p.durationMs))}</td>
+    </tr>`
+  }
+  html += `</tbody></table></div>`
+  return html
+}
+
+// ==========================================================
 // HOOK
 // ==========================================================
 export function useReportGeneration(
@@ -403,6 +477,24 @@ export function useReportGeneration(
   const parsedCommand = parseFlags(commandString)
 
   // ==========================================================
+  // SNAPSHOT DEL TIMELINE
+  // ----------------------------------------------------------
+  // Leemos el estado del timer vía getState() para que el reporte
+  // quede "congelado" en el momento de la exportación. No usamos
+  // suscripciones reactivas (useUiStore((s) => ...)) porque eso
+  // haría que el reporte cambiara en vivo mientras el usuario lo
+  // está leyendo.
+  // ==========================================================
+  const readTimelineSnapshot = useCallback((): TimelineSnapshot => {
+    const s = useUiStore.getState()
+    return {
+      examStartAt: s.examStartAt,
+      examDurationMs: s.examDurationMs,
+      phaseLog: s.phaseLog,
+    }
+  }, [])
+
+  // ==========================================================
   // generateMarkdown
   //   FIX: `nowIso` es un PARÁMETRO. Si no se pasa, se genera uno nuevo.
   //   El llamador (DashboardPanel) debe pasar SIEMPRE el timestamp
@@ -412,6 +504,7 @@ export function useReportGeneration(
   const generateMarkdown = useCallback(
     (integrityHash?: string, nowIso: string = new Date().toISOString()) => {
       const exec = computeExecutiveSummary(filteredData)
+      const timeline = readTimelineSnapshot()
 
       let md = `# LESSSO C2 — Security Report\n\n`
       md += `> Generado: \`${nowIso}\`\n\n`
@@ -425,6 +518,7 @@ export function useReportGeneration(
         parsedCommand,
       )
 
+      // ----- Información del Escaneo (tabla cerrada) -----
       md += `## Información del Escaneo\n\n`
       md += `| Campo | Valor |\n`
       md += `|---|---|\n`
@@ -436,6 +530,9 @@ export function useReportGeneration(
         md += `| **Hash de integridad** | \`${integrityHash}\` (${hashAlgorithmLabel(integrityHash)}) |\n`
       }
       md += `\n`
+
+      // ----- Timeline del Examen (sección propia, DESPUÉS de la tabla) -----
+      md += buildTimelineMd(timeline)
 
       md += `## Métricas del Escaneo\n\n`
       md += `| Métrica | Valor |\n`
@@ -612,6 +709,7 @@ export function useReportGeneration(
       includeCvss,
       signature,
       parsedCommand,
+      readTimelineSnapshot,
     ],
   )
 
@@ -624,6 +722,7 @@ export function useReportGeneration(
   const generateHTML = useCallback(
     (integrityHash?: string, nowIso: string = new Date().toISOString()) => {
       const exec = computeExecutiveSummary(filteredData)
+      const timeline = readTimelineSnapshot()
 
       const css = `
         :root{
@@ -801,6 +900,9 @@ export function useReportGeneration(
           ${integrityHash ? `<div class="meta-item" style="grid-column:1/-1"><span class="meta-label">Hash de integridad (${hashAlgorithmLabel(integrityHash)})</span><span class="meta-value">${escapeHtml(integrityHash)}</span></div>` : ''}
         </div>
       </div>`
+
+      // 1.5. TIMELINE DEL EXAMEN
+      html += buildTimelineHtml(timeline)
 
       // 2. MÉTRICAS
       html += `<h2>Métricas del Escaneo</h2>`
@@ -1097,6 +1199,7 @@ export function useReportGeneration(
       includeCvss,
       signature,
       parsedCommand,
+      readTimelineSnapshot,
     ],
   )
 
@@ -1104,9 +1207,11 @@ export function useReportGeneration(
   // buildJsonPayload(exportedAt)
   //   FIX: el timestamp se recibe como parámetro para que el hash
   //   sea reproducible durante toda la operación de exportación.
+  //   Añadimos `timeline` con snapshot congelado.
   // ==========================================================
   const buildJsonPayload = useCallback(
     (exportedAt: string) => {
+      const timeline = readTimelineSnapshot()
       return {
         exported_at: exportedAt,
         target,
@@ -1121,6 +1226,13 @@ export function useReportGeneration(
         notes: redTeamNotes || undefined,
         signature: signature.name.trim() ? signature : undefined,
         includeCvss,
+        timeline: timeline.examStartAt
+          ? {
+              examStartAt: new Date(timeline.examStartAt).toISOString(),
+              examDurationMs: timeline.examDurationMs,
+              phases: timeline.phaseLog,
+            }
+          : undefined,
       }
     },
     [
@@ -1133,6 +1245,7 @@ export function useReportGeneration(
       includeCredsInExport,
       includeCvss,
       signature,
+      readTimelineSnapshot,
     ],
   )
 

@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { useScanStore } from '../../core/store/useScanStore';
+import { useUiStore, type ExamPhase } from '../../core/store/uiStore';
 
 // ==========================================================
 // SEGURIDAD — SANITIZACIÓN DE MARKDOWN
@@ -37,7 +38,6 @@ const sanitizeSchema = {
     href: [...ALLOWED_URL_PROTOCOLS],
     src: [...ALLOWED_URL_PROTOCOLS],
   },
-  // Permitimos clases en <code> para que el resaltado funcione bien
   attributes: {
     ...defaultSchema.attributes,
     code: [...(defaultSchema.attributes?.code || []), ['className']],
@@ -61,18 +61,15 @@ function sanitizeUrl(url: string | undefined): string | undefined {
   const trimmed = url.trim();
   const lower = trimmed.toLowerCase();
 
-  // Bloqueo explícito de esquemas peligrosos
   const dangerous = ['javascript:', 'vbscript:', 'data:', 'file:', 'blob:'];
   for (const scheme of dangerous) {
     if (lower.startsWith(scheme)) return '';
   }
 
-  // Rutas relativas y anchors son seguras
   if (lower.startsWith('#') || lower.startsWith('/') || lower.startsWith('.')) {
     return trimmed;
   }
 
-  // Cualquier otra cosa debe tener un protocolo permitido
   const match = lower.match(/^([a-z][a-z0-9+.-]*):/);
   if (match && !ALLOWED_URL_PROTOCOLS.includes(match[1])) {
     return '';
@@ -80,6 +77,20 @@ function sanitizeUrl(url: string | undefined): string | undefined {
 
   return trimmed;
 }
+
+// ==========================================================
+// FASES DEL EXAMEN
+// ==========================================================
+const PHASES: ExamPhase[] = ['recon', 'enum', 'exploit', 'privesc', 'loot'];
+
+const PHASE_COLORS: Record<ExamPhase, string> = {
+  recon: 'bg-sky-600',
+  enum: 'bg-indigo-600',
+  exploit: 'bg-rose-600',
+  privesc: 'bg-orange-600',
+  loot: 'bg-emerald-600',
+  done: 'bg-slate-600',
+};
 
 // ==========================================================
 // BARRA DE HERRAMIENTAS — helpers de edición
@@ -91,10 +102,6 @@ interface TextareaEdit {
   selectionEnd: number;
 }
 
-/**
- * Envuelve la selección con un prefijo y sufijo (ej: **bold**).
- * Si no hay selección, inserta el placeholder.
- */
 function wrapSelection(
   edit: TextareaEdit,
   before: string,
@@ -111,15 +118,11 @@ function wrapSelection(
   return { text: newText, selectionStart: newCursorStart, selectionEnd: newCursorEnd };
 }
 
-/**
- * Prefija cada línea seleccionada (ej: "> " para quotes).
- */
 function prefixLines(
   edit: TextareaEdit,
   prefix: string
 ): TextareaEdit {
   const { text, selectionStart, selectionEnd } = edit;
-  // Expandir la selección a líneas completas
   const lineStart = text.lastIndexOf('\n', selectionStart - 1) + 1;
   const lineEndIdx = text.indexOf('\n', selectionEnd);
   const lineEnd = lineEndIdx === -1 ? text.length : lineEndIdx;
@@ -139,10 +142,6 @@ function prefixLines(
   };
 }
 
-/**
- * Inserta un bloque de texto en la posición del cursor,
- * respetando saltos de línea alrededor.
- */
 function insertBlock(edit: TextareaEdit, block: string): TextareaEdit {
   const { text, selectionStart, selectionEnd } = edit;
   const before = text.slice(0, selectionStart);
@@ -162,10 +161,16 @@ function insertBlock(edit: TextareaEdit, block: string): TextareaEdit {
 
 export function NotesPanel() {
   const { theme, redTeamNotes, setRedTeamNotes, autoSaveEnabled } = useScanStore();
+  const currentPhase = useUiStore((s) => s.currentPhase);
+  const setPhase = useUiStore((s) => s.setPhase);
+  const phaseLog = useUiStore((s) => s.phaseLog);
+  const examStartAt = useUiStore((s) => s.examStartAt);
+
   const [saveStatus, setSaveStatus] = useState(
     autoSaveEnabled ? 'Autoguardado activado' : 'Autoguardado pausado'
   );
   const [previewMode, setPreviewMode] = useState<'split' | 'edit' | 'preview'>('split');
+  const [showPhaseLog, setShowPhaseLog] = useState(false);
 
   const notesRef = useRef(redTeamNotes);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -193,7 +198,6 @@ export function NotesPanel() {
   const applyEdit = useCallback(
     (edit: TextareaEdit) => {
       handleChange(edit.text);
-      // Reenfocar y posicionar cursor en el siguiente tick
       requestAnimationFrame(() => {
         const ta = textareaRef.current;
         if (!ta) return;
@@ -365,13 +369,6 @@ export function NotesPanel() {
     [pasteAndInsertImage]
   );
 
-  // ==========================================================
-  // Atajo Ctrl+V
-  // ----------------------------------------------------------
-  // Solo interceptamos si el foco está dentro del panel.
-  // Rust decide si hay imagen o no. Si no hay, el evento
-  // nativo sigue su curso (dejamos que el textarea pegue).
-  // ==========================================================
   useEffect(() => {
     const handler = async (e: KeyboardEvent) => {
       const isPaste = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v';
@@ -381,33 +378,21 @@ export function NotesPanel() {
       const panel = panelRef.current;
       if (!panel || !panel.contains(document.activeElement)) return;
 
-      // En WebKitGTK el evento paste no llega al DOM, así que
-      // sólo interceptamos cuando el elemento activo es el
-      // textarea (para permitir pegar texto normal).
       const active = document.activeElement;
       const isTextarea = active instanceof HTMLTextAreaElement;
 
-      // Si el foco es el textarea, dejamos que el paste nativo
-      // funcione y solo interceptamos si hay imagen (lo cual
-      // detectamos vía Rust). Como no podemos saberlo sin
-      // consultarlo, usamos un pequeño heurístico: leemos el
-      // clipboard solo si el textarea NO tiene texto seleccionado.
       if (isTextarea) {
         const ta = active as HTMLTextAreaElement;
         const hasSelection = ta.selectionStart !== ta.selectionEnd;
-        // Si hay selección, es casi seguro que quiere reemplazarla
-        // con texto → dejamos pasar.
         if (hasSelection) return;
       }
 
-      // En el resto de casos intentamos pegar imagen.
       try {
         e.preventDefault();
         e.stopPropagation();
         await pasteAndInsertImage();
       } catch {
-        // Si falla, no hacemos nada: el usuario puede pegar
-        // manualmente con el menú contextual o Ctrl+Shift+V.
+        // silencioso
       }
     };
 
@@ -444,11 +429,7 @@ export function NotesPanel() {
   };
 
   // ==========================================================
-  // Componentes de preview personalizados
-  // ----------------------------------------------------------
-  // react-markdown v9+ usa `components` para sobrescribir tags.
-  // Aprovechamos para forzar `rel="noopener noreferrer"` en
-  // enlaces y bloquear descargas automáticas en imágenes.
+  // Preview
   // ==========================================================
   const markdownComponents = useMemo(
     () => ({
@@ -456,17 +437,12 @@ export function NotesPanel() {
         <a {...props} target="_blank" rel="noopener noreferrer nofollow" />
       ),
       img: ({ node, ...props }: any) => (
-        // `loading="lazy"` para no cargar imágenes fuera de vista
-        // `referrerPolicy="no-referrer"` para no filtrar la ruta
         <img {...props} loading="lazy" referrerPolicy="no-referrer" />
       ),
     }),
     []
   );
 
-  // ==========================================================
-  // Render del preview
-  // ==========================================================
   const PreviewContent = (
     <div
       className="markdown-preview prose prose-slate dark:prose-invert max-w-none p-4 text-[12px] leading-relaxed"
@@ -483,12 +459,103 @@ export function NotesPanel() {
     </div>
   );
 
+  // Formato de duración por fase (para el tooltip del log)
+  const fmtDuration = (ms?: number) => {
+    if (!ms) return '—';
+    const min = Math.floor(ms / 60_000);
+    const sec = Math.floor((ms % 60_000) / 1000);
+    return `${min}m ${sec}s`;
+  };
+
   return (
     <div
       ref={panelRef}
       className="flex flex-col h-full min-h-[600px] flex-1 bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden"
       data-color-mode={theme}
     >
+      {/* ====================================================
+          Barra de fases del examen
+          ==================================================== */}
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 shrink-0">
+        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+          Fase:
+        </span>
+        <div className="flex flex-wrap gap-1">
+          {PHASES.map((p) => {
+            const active = currentPhase === p
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPhase(p)}
+                disabled={!examStartAt}
+                title={!examStartAt ? 'Inicia el cronómetro para registrar fases' : `Marcar fase: ${p}`}
+                className={
+                  'text-[10px] font-black uppercase px-2.5 py-1 rounded transition-colors ' +
+                  (active
+                    ? `${PHASE_COLORS[p]} text-white shadow-sm`
+                    : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed')
+                }
+              >
+                {p}
+              </button>
+            )
+          })}
+        </div>
+
+        {phaseLog.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowPhaseLog((v) => !v)}
+            className="ml-auto text-[9px] font-bold uppercase px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Ver log de cambios de fase"
+          >
+            {showPhaseLog ? '▾' : '▸'} Log ({phaseLog.length})
+          </button>
+        )}
+      </div>
+
+      {showPhaseLog && phaseLog.length > 0 && (
+        <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 max-h-32 overflow-y-auto custom-scrollbar">
+          <table className="w-full text-[10px]">
+            <thead>
+              <tr className="text-slate-400 uppercase">
+                <th className="text-left font-bold pb-1">Fase</th>
+                <th className="text-left font-bold pb-1">Inicio (UTC)</th>
+                <th className="text-left font-bold pb-1">Fin (UTC)</th>
+                <th className="text-right font-bold pb-1">Duración</th>
+              </tr>
+            </thead>
+            <tbody>
+              {phaseLog.map((entry, i) => (
+                <tr
+                  key={`${entry.phase}-${i}`}
+                  className="border-t border-slate-100 dark:border-slate-800/50"
+                >
+                  <td className="py-0.5">
+                    <span
+                      className={`inline-block w-2 h-2 rounded-full mr-1 ${PHASE_COLORS[entry.phase] || 'bg-slate-500'}`}
+                    />
+                    <span className="font-bold text-slate-700 dark:text-slate-200 uppercase">
+                      {entry.phase}
+                    </span>
+                  </td>
+                  <td className="py-0.5 font-mono text-slate-500 dark:text-slate-400">
+                    {entry.startedAt.slice(11, 19)}
+                  </td>
+                  <td className="py-0.5 font-mono text-slate-500 dark:text-slate-400">
+                    {entry.endedAt ? entry.endedAt.slice(11, 19) : '—'}
+                  </td>
+                  <td className="py-0.5 text-right font-mono text-slate-500 dark:text-slate-400">
+                    {fmtDuration(entry.durationMs)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* ====================================================
           Cabecera
           ==================================================== */}
@@ -610,10 +677,7 @@ export function NotesPanel() {
       {/* ====================================================
           Editor + Preview
           ==================================================== */}
-      <div
-        className="flex-1 min-h-0 flex"
-        onPasteCapture={handlePasteCapture}
-      >
+      <div className="flex-1 min-h-0 flex" onPasteCapture={handlePasteCapture}>
         {previewMode !== 'preview' && (
           <textarea
             ref={textareaRef}
