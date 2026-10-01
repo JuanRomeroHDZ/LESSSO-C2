@@ -853,15 +853,50 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
         return Err("XML no generado.".into());
     }
 
+
     let xml_text = std::fs::read_to_string(xml_path).map_err(|e| e.to_string())?;
 
-    // Saneado básico: elimina el DOCTYPE para evitar ataques XXE / billion laughs.
+    // ------------------------------------------------------------------
+    // Saneado de DOCTYPE (anti-XXE / billion laughs)
+    //
+    // Un DOCTYPE puede tener dos formas:
+    //   1) Simple:  <!DOCTYPE nmaprun>
+    //   2) Interno: <!DOCTYPE lolz [<!ENTITY lol "lol">...]>
+    //
+    // El caso 2 tiene `>` internos que cierran entidades y NO
+    // cierran el DOCTYPE. Contamos corchetes `[` y `]` para saber
+    // cuándo termina realmente el DOCTYPE, y solo entonces
+    // eliminamos el bloque completo.
+    // ------------------------------------------------------------------
     let mut safe_xml = xml_text.clone();
     if let Some(start) = safe_xml.find("<!DOCTYPE") {
-        if let Some(end_offset) = safe_xml[start..].find('>') {
-            safe_xml.replace_range(start..=start + end_offset, "");
+        let after_start = &safe_xml[start..];
+        let mut depth: i32 = 0;
+        let mut end_pos: Option<usize> = None;
+
+        for (i, ch) in after_start.char_indices() {
+            match ch {
+                '[' => depth += 1,
+                ']' => {
+                    if depth > 0 {
+                        depth -= 1;
+                    }
+                }
+                '>' => {
+                    if depth == 0 {
+                        end_pos = Some(start + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(end) = end_pos {
+            safe_xml.replace_range(start..=end, "");
         }
     }
+
 
     let doc = Document::parse(&safe_xml)
         .map_err(|e| format!("Error de parseo XML: {}", e))?;
