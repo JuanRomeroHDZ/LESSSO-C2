@@ -1,18 +1,18 @@
 // ==========================================================
 // useCveEnrichment
 // ----------------------------------------------------------
-// Efecto que enriquece los puertos abiertos del scan actual
-// con CVEs reales de NVD (vía backend) cuando el toggle
-// `cveAutoEnrich` del uiStore está activo.
+// Enriquece los puertos abiertos del scan actual con CVEs
+// reales de NVD (vía backend).
 //
-// Estrategia:
-//   - 1 request al backend por puerto (el backend limita a NVD).
-//   - Actualizamos el store tras CADA respuesta → la UI ve
-//     resultados incrementalmente.
-//   - NVD sin API key tarda ~6s por request; con 10 puertos
-//     son ~60s. El timeout del fetch está en 90s.
-//   - Si el backend falla, el matching heurístico local sigue
-//     funcionando (useDashboardMetrics cae a detectCVEs).
+// Reglas clave para no auto-cancelarse:
+//   1. La "firma" del scan debe depender SOLO de datos que
+//      NO cambian durante el enriquecimiento (ip + end_time
+//      + nº de puertos abiertos). NO contar CVEs.
+//   2. El AbortController NO se recrea en cada render de
+//      parsedData: vive en un ref, y solo se aborta cuando
+//      cambia la firma o se desactiva el toggle.
+//   3. Cuando una firma ya se procesó (o está procesándose),
+//      el efecto sale sin tocar nada.
 // ==========================================================
 
 import { useEffect, useRef } from 'react'
@@ -27,10 +27,22 @@ export function useCveEnrichment(): void {
   const setHostCves = useScanStoreLocal((s) => s.setHostCves)
   const cveAutoEnrich = useUiStore((s) => s.cveAutoEnrich)
 
-  const lastSignatureRef = useRef<string>('')
+  // Firma actual + firma en proceso
+  const currentSignatureRef = useRef<string>('')
+  const processingSignatureRef = useRef<string>('')
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    if (!cveAutoEnrich) return
+    // ------------------------------------------------------
+    // Toggle OFF → abortar lo que haya y limpiar.
+    // ------------------------------------------------------
+    if (!cveAutoEnrich) {
+      abortRef.current?.abort()
+      abortRef.current = null
+      processingSignatureRef.current = ''
+      return
+    }
+
     if (!Array.isArray(parsedData) || parsedData.length === 0) return
 
     const validHosts: HostInfo[] = parsedData.filter(
@@ -39,7 +51,18 @@ export function useCveEnrichment(): void {
     )
     if (validHosts.length === 0) return
 
-    // Firma del scan actual: si no cambia, no repetimos.
+    // ------------------------------------------------------
+    // FIRMA ESTABLE
+    // ------------------------------------------------------
+    // Solo datos que NO cambian al enriquecer:
+    //   - ip
+    //   - end_time (marca del scan)
+    //   - nº de puertos abiertos (ya está en parsedData al
+    //     llegar el scan, no cambia al enriquecer)
+    // NO incluimos la firma de los CVEs ni las descripciones,
+    // porque esos SÍ cambian al hacer setHostCves y harían
+    // que el efecto se auto-abortara en bucle.
+    // ------------------------------------------------------
     const signature = validHosts
       .map((h) => {
         const openCount = Array.isArray(h.ports)
@@ -49,75 +72,101 @@ export function useCveEnrichment(): void {
       })
       .join('|')
 
-    if (signature === lastSignatureRef.current) return
-    lastSignatureRef.current = signature
+    currentSignatureRef.current = signature
 
-    const ac = new AbortController()
+    // Si ya estamos procesando esta misma firma, no hacemos nada.
+    if (processingSignatureRef.current === signature) return
+
+    // Si hay algo en curso, lo abortamos antes de empezar
+    // una nueva firma (scan nuevo, target distinto…).
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    const ac = abortRef.current
+    processingSignatureRef.current = signature
 
     ;(async () => {
-      // Recopilamos todos los puertos abiertos de todos los hosts
-      // con su índice para poder actualizar el store por lotes.
-      type Pending = {
-        hostIp: string
-        portKey: string
-        service: string
-        version: string
-        cpe?: string[]
-      }
-
-      const pending: Pending[] = []
-      for (const host of validHosts) {
-        const openPorts = Array.isArray(host.ports)
-          ? host.ports.filter((p) => p.state === 'open')
-          : []
-        for (const p of openPorts) {
-          pending.push({
-            hostIp: host.ip,
-            portKey: `${p.protocol}/${p.portid}`,
-            service: p.service || '',
-            version: p.version || '',
-            cpe: p.cpe,
-          })
+      try {
+        type Pending = {
+          hostIp: string
+          portKey: string
+          service: string
+          version: string
+          cpe?: string[]
         }
-      }
 
-      if (pending.length === 0) return
+        const pending: Pending[] = []
+        for (const host of validHosts) {
+          const openPorts = Array.isArray(host.ports)
+            ? host.ports.filter((p) => p.state === 'open')
+            : []
+          for (const p of openPorts) {
+            pending.push({
+              hostIp: host.ip,
+              portKey: `${p.protocol}/${p.portid}`,
+              service: p.service || '',
+              version: p.version || '',
+              cpe: p.cpe,
+            })
+          }
+        }
 
-      // eslint-disable-next-line no-console
-      console.info(
-        `[cve] Enriqueciendo ${pending.length} puertos abiertos con NVD…`,
-      )
+        if (pending.length === 0) return
 
-      // Procesamos 1 a 1 y aplicamos al store tras cada uno.
-      // Agrupamos por host para llamar a setHostCves una sola
-      // vez por host cuando lleguen todos sus puertos.
-      const byHost: Record<string, Record<string, CveMatch[]>> = {}
-      let done = 0
-
-      for (let i = 0; i < pending.length; i++) {
-        if (ac.signal.aborted) return
-        const p = pending[i]
-
-        const [out] = await enrichCVEs(
-          [{ service: p.service, version: p.version, cpe: p.cpe }],
-          ac.signal,
+        // eslint-disable-next-line no-console
+        console.info(
+          `[cve] Enriqueciendo ${pending.length} puertos abiertos con NVD…`,
         )
 
-        done++
-        if (!byHost[p.hostIp]) byHost[p.hostIp] = {}
-        byHost[p.hostIp][p.portKey] = out?.cves ?? []
+        const byHost: Record<string, Record<string, CveMatch[]>> = {}
+        let done = 0
 
-        // Aplicamos al store tras cada item → progreso visible.
-        setHostCves(p.hostIp, byHost[p.hostIp])
+        for (let i = 0; i < pending.length; i++) {
+          if (ac.signal.aborted) return
+          const p = pending[i]
 
-        // Log cada 3 items para no llenar la consola.
-        if (done % 3 === 0 || done === pending.length) {
-          // eslint-disable-next-line no-console
-          console.info(`[cve] ${done}/${pending.length} puertos procesados`)
+          const [out] = await enrichCVEs(
+            [{ service: p.service, version: p.version, cpe: p.cpe }],
+            ac.signal,
+          )
+
+          if (ac.signal.aborted) return
+
+          done++
+          if (!byHost[p.hostIp]) byHost[p.hostIp] = {}
+          byHost[p.hostIp][p.portKey] = out?.cves ?? []
+
+          // Actualizamos el store tras cada item → progreso
+          // incremental. La firma del efecto NO cambia porque
+          // no depende de los CVEs.
+          setHostCves(p.hostIp, byHost[p.hostIp])
+
+          if (done % 3 === 0 || done === pending.length) {
+            // eslint-disable-next-line no-console
+            console.info(`[cve] ${done}/${pending.length} puertos procesados`)
+          }
+        }
+      } finally {
+        // Solo limpiamos si seguimos siendo la firma activa.
+        if (processingSignatureRef.current === signature) {
+          processingSignatureRef.current = ''
         }
       }
     })()
-
-    return () => ac.abort()
+    // Importante: NO abortamos en el cleanup del efecto por
+    // cambios de parsedData. Solo limpiamos al desmontar.
+    // El abort real lo disparan: (a) toggle OFF arriba,
+    // (b) nueva firma detectada arriba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedData, cveAutoEnrich, setHostCves])
+
+  // ------------------------------------------------------
+  // Abortar al desmontar
+  // ------------------------------------------------------
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort()
+      abortRef.current = null
+      processingSignatureRef.current = ''
+    }
+  }, [])
 }

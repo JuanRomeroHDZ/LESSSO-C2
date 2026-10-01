@@ -22,16 +22,36 @@ services:
     container_name: juanmap_api
     restart: unless-stopped
     ports:
-      # ⚠️ Bindea solo a 127.0.0.1 (localhost).
+      # ⚠ Bindea solo a 127.0.0.1 (localhost).
       # Se lee del .env como "127.0.0.1:8001"
       - "${API_HOST_PORT}:8000"
     volumes:
       - ./backend:/app
     environment:
-      # URLs construidas a partir de las variables del .env
-      # (Docker Compose las expande automáticamente)
+      # URLs compuestas (Docker Compose las expande del .env)
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
+
+      # ------------------------------------------------------
+      # NVD (National Vulnerability Database)
+      # ------------------------------------------------------
+      # Sin estas líneas, la key del .env NO llega al
+      # contenedor y `settings.NVD_API_KEY` queda vacío.
+      # El `:-` da un valor por defecto si la var no existe.
+      - NVD_API_KEY=${NVD_API_KEY:-}
+      - NVD_SOFT_FAIL=${NVD_SOFT_FAIL:-true}
+      - NVD_TIMEOUT_S=${NVD_TIMEOUT_S:-15}
+      - NVD_MAX_RESULTS_PER_ITEM=${NVD_MAX_RESULTS_PER_ITEM:-25}
+      - CVE_CACHE_TTL_S=${CVE_CACHE_TTL_S:-86400}
+      - CVE_CACHE_REQUIRED=${CVE_CACHE_REQUIRED:-false}
+
+      # ------------------------------------------------------
+      # CORS — Orígenes permitidos del frontend
+      # ------------------------------------------------------
+      # En dev Tauri/Vite. Si accedes desde otro host,
+      # añade el tuyo separado por comas.
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5173,tauri://localhost,http://tauri.localhost}
+
     depends_on:
       db:
         condition: service_healthy
@@ -50,7 +70,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      # ⚠️ Bindea solo a 127.0.0.1 (localhost).
+      # ⚠ Bindea solo a 127.0.0.1 (localhost).
       # Se lee del .env como "127.0.0.1:5433"
       - "${POSTGRES_HOST_PORT}:5432"
     volumes:
@@ -69,7 +89,7 @@ services:
     container_name: juanmap_redis
     restart: unless-stopped
     ports:
-      # ⚠️ Bindea solo a 127.0.0.1 (localhost).
+      # ⚠ Bindea solo a 127.0.0.1 (localhost).
       # Se lee del .env como "127.0.0.1:6380"
       - "${REDIS_HOST_PORT}:6379"
     healthcheck:
