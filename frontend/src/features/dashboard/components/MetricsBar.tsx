@@ -42,7 +42,7 @@ export function MetricsBar({
       <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center">
         <span className="text-[9px] font-bold text-slate-500 uppercase">Estado Puertos</span>
         <div className="h-16 w-full mt-1">
-          <ResponsiveContainer height="100%" width="100%">
+          <ResponsiveContainer width="100%" height={64}>
             <PieChart>
               <Pie data={portChartData} dataKey="value" innerRadius={15} outerRadius={25} paddingAngle={5} stroke="none">
                 {portChartData.map((_, index) => (
@@ -58,7 +58,7 @@ export function MetricsBar({
       <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center">
         <span className="text-[9px] font-bold text-slate-500 uppercase">Distribución OS</span>
         <div className="h-16 w-full mt-1">
-          <ResponsiveContainer height="100%" width="100%">
+          <ResponsiveContainer width="100%" height={64}>
             <PieChart>
               <Pie data={osChartData} dataKey="value" innerRadius={0} outerRadius={25} stroke="none">
                 {osChartData.map((_, index) => (
@@ -74,7 +74,7 @@ export function MetricsBar({
       <div className="bg-white dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col items-center">
         <span className="text-[9px] font-bold text-slate-500 uppercase">Top Servicios</span>
         <div className="h-16 w-full mt-1">
-          <ResponsiveContainer height="100%" width="100%">
+          <ResponsiveContainer width="100%" height={64}>
             <BarChart data={topServicesData}>
               <XAxis dataKey="name" hide />
               <RechartsTooltip cursor={{ fill: 'transparent' }} contentStyle={{ background: theme === 'dark' ? '#1e293b' : '#fff', border: 'none', borderRadius: '6px', fontSize: '10px' }} />

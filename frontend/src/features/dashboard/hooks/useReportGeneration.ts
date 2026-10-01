@@ -3,7 +3,7 @@ import { save, open } from '@tauri-apps/plugin-dialog'
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs'
 import type { HostInfo, VaultCred, PortInfo } from '../../../core/store/useScanStore'
 import type { CveMatch, Severity } from '../utils/cve'
-import { detectCVEs } from '../utils/cve'
+// import { detectCVEs } from '../utils/cve'
 import type { ReportSignature } from '../../../core/store/uiStore'
 import {
   escapeMdInline,
@@ -87,10 +87,10 @@ interface ScanMetrics {
 // ==========================================================
 // HELPERS DE CVEs
 // ==========================================================
+
 function collectPortCves(port: PortInfo): CveMatch[] {
   const real = port.cves || []
-  if (real.length > 0) return real
-  return detectCVEs(port.service, port.version, port.cpe)
+  return real.filter((c) => c.source !== 'heuristic')
 }
 
 function collectHostCves(host: HostInfo): HostCveSummary {
@@ -164,7 +164,7 @@ function collectGlobalCves(hosts: HostInfo[]): HostCveSummary {
 }
 
 // ==========================================================
-// MÉTRICAS DEL ESCANEO
+// MÉTRICAS
 // ==========================================================
 function computeScanMetrics(hosts: HostInfo[]): ScanMetrics {
   const global = collectGlobalCves(hosts)
@@ -203,7 +203,6 @@ function computeScanMetrics(hosts: HostInfo[]): ScanMetrics {
   }
 }
 
-/** Datos agregados para el resumen ejecutivo. */
 function computeExecutiveSummary(hosts: HostInfo[]) {
   const global = collectGlobalCves(hosts)
   const metrics = computeScanMetrics(hosts)
@@ -240,11 +239,6 @@ function computeExecutiveSummary(hosts: HostInfo[]) {
 // ==========================================================
 // FILAS MARKDOWN
 // ==========================================================
-
-/**
- * Fila MD para la tabla de CVEs.
- * Si `includeCvss` es false, la columna CVSS se omite.
- */
 function cveMdRow(cve: CveMatch, includeCvss: boolean): string {
   const sev = SEVERITY_LABEL[cve.severity]
   const cwe = cve.cwe && cve.cwe.length > 0 ? cve.cwe.join(', ') : '-'
@@ -264,7 +258,6 @@ function cveMdRow(cve: CveMatch, includeCvss: boolean): string {
   return `| ${cveLink} | **${sev}** | ${escapeMdCell(cwe)} | ${src} | ${desc} |`
 }
 
-/** Header de la tabla de CVEs según includeCvss. */
 function cveMdHeader(includeCvss: boolean): { header: string; sep: string } {
   if (includeCvss) {
     return {
@@ -278,9 +271,40 @@ function cveMdHeader(includeCvss: boolean): { header: string; sep: string } {
   }
 }
 
-/**
- * Bloque MD con la sección "Scope & Metodología".
- */
+// ==========================================================
+// HELPERS HTML
+// ==========================================================
+function cvssHtmlPill(score: number | undefined | null): string {
+  if (score === undefined || score === null || isNaN(score)) {
+    return `<span class="cve-pill sev-unknown" style="font-weight:600">N/A</span>`
+  }
+  const s = cvssHtmlStyle(score)
+  const band = cvssBand(score)
+  return (
+    `<span class="cve-pill sev-${band}" ` +
+    `style="background:${s.bg};color:${s.fg};border-color:${s.border};font-weight:800">` +
+    `${score.toFixed(1)} <span style="opacity:.7;font-size:7.5pt">${s.label}</span>` +
+    `</span>`
+  )
+}
+
+function cveHtmlLink(cveId: string): string {
+  const url = nvdUrl(cveId)
+  const text = escapeHtml(cveId)
+  if (!url || !isSafeUrl(url)) {
+    return `<code>${text}</code>`
+  }
+  return (
+    `<a href="${escapeUrl(url)}" target="_blank" rel="noopener noreferrer" ` +
+    `style="color:#0b282c;text-decoration:none;font-weight:700">` +
+    `<code style="background:#e0f2fe;color:#075985;padding:2px 6px;border-radius:4px">${text}</code>` +
+    `</a>`
+  )
+}
+
+// ==========================================================
+// BLOQUES MD
+// ==========================================================
 function buildScopeMd(
   target: string,
   commandString: string,
@@ -323,37 +347,32 @@ function buildScopeMd(
 
   md += `### Herramientas utilizadas\n\n`
   md += `- **Nmap** — descubrimiento de hosts, puertos y detección de servicios/versiones.\n`
-  md += `- **NVD API v2** — enriquecimiento de CVEs (CVSS, CWE, descripción).\n`
+  md += `- **NVD API v2** — enriquecimiento de CVEs filtrados por versión (CVSS, CWE, descripción).\n`
   md += `- **LESSSO C2** — orquestador, parser y generador de reportes.\n\n`
 
   md += `### Limitaciones\n\n`
   md += `> Este reporte **no incluye explotación**; es únicamente reconocimiento ` +
     `y correlación pasiva/activa de vulnerabilidades conocidas. Los CVEs ` +
-    `listados corresponden a coincidencias contra la base de datos NVD y ` +
-    `pueden requerir validación manual antes de cualquier acción.\n\n`
+    `listados corresponden a coincidencias contra la base de datos NVD ` +
+    `filtradas por la versión exacta del servicio detectado.\n\n`
 
   return md
 }
 
-/**
- * Bloque MD de firmas. Vacío si no hay nombre.
- */
 function buildSignatureMd(sig: ReportSignature): string {
   if (!sig.name.trim()) return ''
+  const sigDate = sig.date || new Date().toISOString()
   let md = `## Firmas\n\n`
   md += `| Campo | Valor |\n`
   md += `|---|---|\n`
   md += `| **Auditor** | ${escapeMdCell(sig.name)} |\n`
   if (sig.role.trim()) md += `| **Cargo** | ${escapeMdCell(sig.role)} |\n`
   if (sig.company.trim()) md += `| **Empresa** | ${escapeMdCell(sig.company)} |\n`
-  md += `| **Fecha de firma (UTC)** | \`${sig.date || new Date().toISOString()}\` |\n\n`
+  md += `| **Fecha de firma (UTC)** | \`${sigDate}\` |\n\n`
   md += `---\n\n`
   return md
 }
 
-/**
- * Bloque MD del hash de integridad.
- */
 function buildHashMd(hash: string): string {
   const algo = hashAlgorithmLabel(hash)
   return (
@@ -361,45 +380,6 @@ function buildHashMd(hash: string): string {
     `**Hash (${algo}):** \`${hash}\`\n\n` +
     `> Este hash se calcula sobre el JSON exportado y permite verificar ` +
     `que el reporte no fue alterado después de su generación.\n\n`
-  )
-}
-
-// ==========================================================
-// HELPERS HTML
-// ==========================================================
-
-/**
- * Pill de CVSS con color por banda.
- */
-function cvssHtmlPill(score: number | undefined | null): string {
-  if (score === undefined || score === null || isNaN(score)) {
-    return `<span class="cve-pill sev-unknown" style="font-weight:600">N/A</span>`
-  }
-  const s = cvssHtmlStyle(score)
-  const band = cvssBand(score)
-  return (
-    `<span class="cve-pill sev-${band}" ` +
-    `style="background:${s.bg};color:${s.fg};border-color:${s.border};font-weight:800">` +
-    `${score.toFixed(1)} <span style="opacity:.7;font-size:7.5pt">${s.label}</span>` +
-    `</span>`
-  )
-}
-
-/**
- * Link HTML a NVD, si el id es un CVE válido. Si no, devuelve
- * el id escapado sin link.
- */
-function cveHtmlLink(cveId: string): string {
-  const url = nvdUrl(cveId)
-  const text = escapeHtml(cveId)
-  if (!url || !isSafeUrl(url)) {
-    return `<code>${text}</code>`
-  }
-  return (
-    `<a href="${escapeUrl(url)}" target="_blank" rel="noopener noreferrer" ` +
-    `style="color:#0b282c;text-decoration:none;font-weight:700">` +
-    `<code style="background:#e0f2fe;color:#075985;padding:2px 6px;border-radius:4px">${text}</code>` +
-    `</a>`
   )
 }
 
@@ -423,33 +403,28 @@ export function useReportGeneration(
   const parsedCommand = parseFlags(commandString)
 
   // ==========================================================
-  // MARKDOWN
+  // generateMarkdown
+  //   FIX: `nowIso` es un PARÁMETRO. Si no se pasa, se genera uno nuevo.
+  //   El llamador (DashboardPanel) debe pasar SIEMPRE el timestamp
+  //   congelado al abrir el modal para que "Ventana temporal" e
+  //   "Información del Escaneo" no cambien en vivo.
   // ==========================================================
   const generateMarkdown = useCallback(
-    (integrityHash?: string) => {
+    (integrityHash?: string, nowIso: string = new Date().toISOString()) => {
       const exec = computeExecutiveSummary(filteredData)
-      const nowIso = new Date().toISOString()
-      const startedAtIso = nowIso // No tenemos timestamp real de inicio; usamos "ahora" como placeholder documentado
-      const finishedAtIso = nowIso
 
       let md = `# LESSSO C2 — Security Report\n\n`
       md += `> Generado: \`${nowIso}\`\n\n`
 
-      // ------------------------------------------------------
-      // 0. SCOPE & METODOLOGÍA
-      // ------------------------------------------------------
       md += buildScopeMd(
         target,
         commandString,
         scanDuration,
-        startedAtIso,
-        finishedAtIso,
+        nowIso,
+        nowIso,
         parsedCommand,
       )
 
-      // ------------------------------------------------------
-      // 1. PORTADA / METADATOS
-      // ------------------------------------------------------
       md += `## Información del Escaneo\n\n`
       md += `| Campo | Valor |\n`
       md += `|---|---|\n`
@@ -462,9 +437,6 @@ export function useReportGeneration(
       }
       md += `\n`
 
-      // ------------------------------------------------------
-      // 2. MÉTRICAS DEL ESCANEO
-      // ------------------------------------------------------
       md += `## Métricas del Escaneo\n\n`
       md += `| Métrica | Valor |\n`
       md += `|---|---|\n`
@@ -480,9 +452,6 @@ export function useReportGeneration(
       md += `| **CVEs desconocidos** | ${exec.metrics.cvesBySeverity.unknown} |\n`
       md += `\n`
 
-      // ------------------------------------------------------
-      // 3. RESUMEN EJECUTIVO
-      // ------------------------------------------------------
       md += `## Resumen Ejecutivo\n\n`
       md += `### Vulnerabilidades por Severidad\n\n`
       md += `| Severidad | Cantidad |\n`
@@ -527,9 +496,6 @@ export function useReportGeneration(
         md += `\n`
       }
 
-      // ------------------------------------------------------
-      // 4. RESUMEN DE HOSTS
-      // ------------------------------------------------------
       md += `## Resumen de Hosts\n\n`
       md += `| IP | Hostname | SO | MAC | Puertos abiertos | Críticos | Altos | Medios | Total CVEs |\n`
       md += `|---|---|---|---|---|---|---|---|---|\n`
@@ -540,9 +506,6 @@ export function useReportGeneration(
       })
       md += `\n---\n\n`
 
-      // ------------------------------------------------------
-      // 5. DETALLE POR HOST
-      // ------------------------------------------------------
       md += `## Detalle por Host\n\n`
 
       filteredData.forEach((host) => {
@@ -563,7 +526,6 @@ export function useReportGeneration(
         if (host.distance) md += `| **Saltos** | ${host.distance} |\n`
         md += `| **CVEs** | ${hostCves.crit} críticos · ${hostCves.high} altos · ${hostCves.med} medios · ${hostCves.total} total |\n\n`
 
-        // Puertos con toda la info
         if (portsWithCves.length > 0) {
           md += `#### Puertos Detectados\n\n`
           md += `| Puerto/Proto | Estado | Razón | Servicio | Versión | CPE | CVEs |\n`
@@ -581,7 +543,6 @@ export function useReportGeneration(
           md += `*Sin puertos detectados.*\n\n`
         }
 
-        // CVEs detallados
         if (hostCves.total > 0) {
           md += `#### Vulnerabilidades Detectadas\n\n`
           const { header, sep } = cveMdHeader(includeCvss)
@@ -592,7 +553,6 @@ export function useReportGeneration(
           md += `\n`
         }
 
-        // Scripts puertos
         const portsWithScripts = (host.ports || []).filter(
           (p) => p.scripts && p.scripts.length > 0,
         )
@@ -606,7 +566,6 @@ export function useReportGeneration(
           })
         }
 
-        // Scripts host
         if (host.scripts && host.scripts.length > 0) {
           md += `#### Host Script Output\n\n`
           host.scripts.forEach((s) => {
@@ -617,9 +576,6 @@ export function useReportGeneration(
         md += `---\n\n`
       })
 
-      // ------------------------------------------------------
-      // 6. ANEXOS
-      // ------------------------------------------------------
       if (includeCredsInExport && vaultCredentials.length > 0) {
         md += `## Anexo A — Bóveda de Credenciales\n\n`
         md += `| Target | Tipo | Usuario | Secreto |\n`
@@ -634,9 +590,6 @@ export function useReportGeneration(
         md += `## Anexo B — Bitácora de Auditoría\n\n\`\`\`text\n${escapeMdCode(redTeamNotes)}\n\`\`\`\n\n`
       }
 
-      // ------------------------------------------------------
-      // 7. HASH DE INTEGRIDAD + FIRMAS
-      // ------------------------------------------------------
       if (integrityHash) {
         md += buildHashMd(integrityHash)
       }
@@ -663,16 +616,15 @@ export function useReportGeneration(
   )
 
   // ==========================================================
-  // HTML
+  // generateHTML
+  //   FIX: `nowIso` es un PARÁMETRO. Mismo razonamiento que en
+  //   generateMarkdown: el reporte previsualizado debe quedar
+  //   congelado con el timestamp de apertura del modal.
   // ==========================================================
   const generateHTML = useCallback(
-    (integrityHash?: string) => {
+    (integrityHash?: string, nowIso: string = new Date().toISOString()) => {
       const exec = computeExecutiveSummary(filteredData)
-      const nowIso = new Date().toISOString()
 
-      // ------------------------------------------------------
-      // CSS
-      // ------------------------------------------------------
       const css = `
         :root{
           --c-dark:#0b282c;
@@ -687,15 +639,19 @@ export function useReportGeneration(
           --c-muted:#64748b;
         }
         *{box-sizing:border-box}
-        html,body{margin:0;padding:0;background:#f1f5f9}
+        html{margin:0;padding:0;background:#f1f5f9;height:100%}
         body{
+          margin:0;
+          padding:24px;
+          background:#f1f5f9;
           font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
           color: var(--c-text);
           font-size: 10pt;
           line-height: 1.45;
-          padding: 24px;
+          min-height:100%;
           -webkit-print-color-adjust: exact;
           print-color-adjust: exact;
+          overflow-y:auto;
         }
         .container{max-width:1200px;margin:0 auto}
 
@@ -783,12 +739,9 @@ export function useReportGeneration(
 
       let html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>LESSSO C2 Report — ${escapeHtml(target)}</title><style>${css}</style></head><body><div class="container">`
 
-      // ======================================================
-      // 0. SCOPE & METODOLOGÍA
-      // ======================================================
+      // 0. SCOPE
       html += `<h2>Scope &amp; Metodología</h2>`
       html += `<div class="section">`
-
       html += `<h3 style="margin-top:0">Target(s)</h3>`
       html += `<ul class="scope-list">`
       html += `<li><strong>Objetivo principal:</strong> <code>${escapeHtml(target || '<sin target>')}</code></li>`
@@ -822,7 +775,7 @@ export function useReportGeneration(
       html += `<h3>Herramientas utilizadas</h3>`
       html += `<ul class="scope-list">
         <li><strong>Nmap</strong> — descubrimiento de hosts, puertos y detección de servicios/versiones.</li>
-        <li><strong>NVD API v2</strong> — enriquecimiento de CVEs (CVSS, CWE, descripción).</li>
+        <li><strong>NVD API v2</strong> — enriquecimiento de CVEs filtrados por versión (CVSS, CWE, descripción).</li>
         <li><strong>LESSSO C2</strong> — orquestador, parser y generador de reportes.</li>
       </ul>`
 
@@ -830,15 +783,13 @@ export function useReportGeneration(
       html += `<p style="background:#fef9c3;border-left:3px solid #eab308;padding:10px 12px;border-radius:4px;font-size:9.5pt;margin:0">
         Este reporte <strong>no incluye explotación</strong>; es únicamente reconocimiento
         y correlación pasiva/activa de vulnerabilidades conocidas. Los CVEs listados
-        corresponden a coincidencias contra la base de datos NVD y pueden requerir
-        validación manual antes de cualquier acción.
+        corresponden a coincidencias contra la base de datos NVD filtradas por la
+        versión exacta del servicio detectado.
       </p>`
 
       html += `</div>`
 
-      // ======================================================
       // 1. PORTADA
-      // ======================================================
       html += `<div class="section">
         <h1>LESSSO C2 — Security Report</h1>
         <p style="color:var(--c-muted);font-size:10pt;margin:0 0 14px">Informe de auditoría de seguridad generado automáticamente</p>
@@ -851,9 +802,7 @@ export function useReportGeneration(
         </div>
       </div>`
 
-      // ======================================================
-      // 2. MÉTRICAS DEL ESCANEO
-      // ======================================================
+      // 2. MÉTRICAS
       html += `<h2>Métricas del Escaneo</h2>`
       html += `<div class="section-flat"><table class="compact">
         <thead><tr><th>Métrica</th><th style="width:180px">Valor</th></tr></thead>
@@ -871,9 +820,7 @@ export function useReportGeneration(
         </tbody>
       </table></div>`
 
-      // ======================================================
       // 3. RESUMEN EJECUTIVO
-      // ======================================================
       html += `<h2>Resumen Ejecutivo</h2>`
       html += `<div class="section">
         <div class="exec-grid">
@@ -918,9 +865,7 @@ export function useReportGeneration(
         html += `</tbody></table></div>`
       }
 
-      // ======================================================
       // 4. RESUMEN DE HOSTS
-      // ======================================================
       html += `<h2>Resumen de Hosts</h2>`
       html += `<div class="section-flat"><table class="compact">
         <thead><tr>
@@ -949,9 +894,7 @@ export function useReportGeneration(
       })
       html += `</tbody></table></div>`
 
-      // ======================================================
       // 5. DETALLE POR HOST
-      // ======================================================
       html += `<h2>Detalle por Host</h2>`
 
       filteredData.forEach((host) => {
@@ -1088,9 +1031,7 @@ export function useReportGeneration(
         html += `</div>`
       })
 
-      // ======================================================
       // 6. ANEXOS
-      // ======================================================
       if (includeCredsInExport && vaultCredentials.length > 0) {
         html += `<h2>Anexo A — Bóveda de Credenciales</h2>
         <div class="section-flat">
@@ -1113,9 +1054,7 @@ export function useReportGeneration(
         <div class="section" style="white-space:pre-wrap;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:9pt;color:#334155">${escapeHtml(redTeamNotes)}</div>`
       }
 
-      // ======================================================
       // 7. HASH + FIRMAS
-      // ======================================================
       if (integrityHash) {
         html += `<h2>Integridad del Reporte</h2>
         <div class="section">
@@ -1162,8 +1101,41 @@ export function useReportGeneration(
   )
 
   // ==========================================================
-  // IMPRIMIR
+  // buildJsonPayload(exportedAt)
+  //   FIX: el timestamp se recibe como parámetro para que el hash
+  //   sea reproducible durante toda la operación de exportación.
   // ==========================================================
+  const buildJsonPayload = useCallback(
+    (exportedAt: string) => {
+      return {
+        exported_at: exportedAt,
+        target,
+        command: commandString,
+        duration: scanDuration,
+        hosts: filteredData,
+        cves: collectGlobalCves(filteredData).cves,
+        vault:
+          includeCredsInExport && vaultCredentials.length > 0
+            ? vaultCredentials
+            : undefined,
+        notes: redTeamNotes || undefined,
+        signature: signature.name.trim() ? signature : undefined,
+        includeCvss,
+      }
+    },
+    [
+      target,
+      commandString,
+      scanDuration,
+      filteredData,
+      vaultCredentials,
+      redTeamNotes,
+      includeCredsInExport,
+      includeCvss,
+      signature,
+    ],
+  )
+
   const handlePrint = useCallback(async () => {
     const allPorts: Record<string, boolean> = {}
     const allHosts: Record<string, boolean> = {}
@@ -1176,12 +1148,13 @@ export function useReportGeneration(
     setExpandedHosts(allHosts)
     setExpandedPorts(allPorts)
 
-    // Calculamos hash antes de generar para incluirlo en el HTML
-    const jsonPayload = JSON.stringify(buildJsonPayload(), null, 2)
+    // Snapshot congelado: un único timestamp para toda la operación.
+    const exportedAt = new Date().toISOString()
+    const jsonPayload = JSON.stringify(buildJsonPayload(exportedAt), null, 2)
     const integrityHash = await sha256Hex(jsonPayload)
 
     setTimeout(() => {
-      const html = generateHTML(integrityHash)
+      const html = generateHTML(integrityHash, exportedAt)
       let printWindow: Window | null = null
       try {
         printWindow = window.open('', '_blank', 'width=1024,height=768')
@@ -1224,49 +1197,24 @@ export function useReportGeneration(
           'Se ha descargado el reporte como HTML. Ábrelo y usa Ctrl+P para imprimirlo.',
       )
     }, 300)
-  }, [filteredData, generateHTML, setExpandedHosts, setExpandedPorts])
-
-  // ==========================================================
-  // PAYLOAD JSON (sin hash — el hash se calcula sobre esto)
-  // ==========================================================
-  const buildJsonPayload = useCallback(() => {
-    return {
-      exported_at: new Date().toISOString(),
-      target,
-      command: commandString,
-      duration: scanDuration,
-      hosts: filteredData,
-      cves: collectGlobalCves(filteredData).cves,
-      vault:
-        includeCredsInExport && vaultCredentials.length > 0
-          ? vaultCredentials
-          : undefined,
-      notes: redTeamNotes || undefined,
-      signature: signature.name.trim() ? signature : undefined,
-      includeCvss,
-    }
   }, [
-    target,
-    commandString,
-    scanDuration,
     filteredData,
-    vaultCredentials,
-    redTeamNotes,
-    includeCredsInExport,
-    includeCvss,
-    signature,
+    generateHTML,
+    setExpandedHosts,
+    setExpandedPorts,
+    buildJsonPayload,
   ])
 
-  // ==========================================================
-  // GUARDAR / IMPORTAR
-  // ==========================================================
   const handleSaveFile = async (type: 'md' | 'html' | 'json') => {
     try {
       const extension = type === 'md' ? 'md' : type === 'html' ? 'html' : 'json'
 
+      // Snapshot congelado: un único timestamp para toda la exportación.
+      const exportedAt = new Date().toISOString()
+
       let content: string
       if (type === 'json') {
-        const payload = buildJsonPayload()
+        const payload = buildJsonPayload(exportedAt)
         const jsonString = JSON.stringify(payload, null, 2)
         const integrityHash = await sha256Hex(jsonString)
         content = JSON.stringify(
@@ -1275,14 +1223,12 @@ export function useReportGeneration(
           2,
         )
       } else {
-        // Para MD/HTML, calculamos el hash sobre el payload JSON
-        // (mismo que se exportaría en .json) para que sea consistente.
-        const jsonPayload = JSON.stringify(buildJsonPayload(), null, 2)
+        const jsonPayload = JSON.stringify(buildJsonPayload(exportedAt), null, 2)
         const integrityHash = await sha256Hex(jsonPayload)
         content =
           type === 'md'
-            ? generateMarkdown(integrityHash)
-            : generateHTML(integrityHash)
+            ? generateMarkdown(integrityHash, exportedAt)
+            : generateHTML(integrityHash, exportedAt)
       }
 
       const filePath = await save({
@@ -1316,13 +1262,16 @@ export function useReportGeneration(
   }
 
   /**
-   * Calcula el hash de integridad del reporte actual.
-   * Útil para mostrarlo en el PreviewModal.
+   * Calcula el hash de integridad de un snapshot congelado.
+   * @param exportedAt timestamp fijo (ISO) para toda la operación.
    */
-  const computeIntegrityHash = useCallback(async (): Promise<string> => {
-    const jsonPayload = JSON.stringify(buildJsonPayload(), null, 2)
-    return sha256Hex(jsonPayload)
-  }, [buildJsonPayload])
+  const computeIntegrityHash = useCallback(
+    async (exportedAt: string): Promise<string> => {
+      const jsonPayload = JSON.stringify(buildJsonPayload(exportedAt), null, 2)
+      return sha256Hex(jsonPayload)
+    },
+    [buildJsonPayload],
+  )
 
   return {
     generateMarkdown,

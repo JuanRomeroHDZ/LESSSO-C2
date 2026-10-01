@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useScanStore } from '../../core/store/useScanStore'
 import { useUiStore } from '../../core/store/uiStore'
 
-// Hooks
 import { useHostFiltering } from './hooks/useHostFiltering'
 import { useDashboardMetrics } from './hooks/useDashboardMetrics'
 import { useHostExpansion } from './hooks/useHostExpansion'
 import { useReportGeneration } from './hooks/useReportGeneration'
 import { useCveEnrichment } from './hooks/useCveEnrichment'
 
-// Components
 import { MetricsBar } from './components/MetricsBar'
 import { FiltersBar } from './components/FiltersBar'
 import { HostCard } from './components/HostCard'
@@ -18,7 +16,6 @@ import { LoadingState } from './components/LoadingState'
 import { PreviewModal } from './components/PreviewModal'
 
 export function DashboardPanel() {
-  // Global Store
   const {
     parsedData, historyData, isScanning, target, commandString, theme,
     scanDuration, clearHistory, compactMode, toggleCompactMode,
@@ -33,12 +30,17 @@ export function DashboardPanel() {
   const [showDiff, setShowDiff] = useState(false)
   const [previewModal, setPreviewModal] = useState<'md' | 'html' | 'json' | null>(null)
 
-  // Sub-lógicas encapsuladas
+  // Timestamp CONGELADO al abrir el modal. Es la clave para que el hash
+  // y el cuerpo del reporte no cambien en cada render del dashboard en vivo.
+  const [previewExportedAt, setPreviewExportedAt] = useState<string | null>(null)
+
+  // Hash de integridad calculado UNA vez por apertura del modal.
+  const [integrityHash, setIntegrityHash] = useState<string | null>(null)
+
   const filters = useHostFiltering(parsedData || [])
   const metrics = useDashboardMetrics(parsedData || [])
   const expansion = useHostExpansion()
 
-  // Enriquecimiento CVE con NVD (best-effort, opt-in)
   useCveEnrichment()
 
   const reportGenerator = useReportGeneration(
@@ -56,62 +58,94 @@ export function DashboardPanel() {
     signature,
   )
 
-  // ==========================================================
-  // HASH DE INTEGRIDAD (async)
-  // ==========================================================
-  const [integrityHash, setIntegrityHash] = useState<string | null>(null)
+  // Ref para acceder al reportGenerator más reciente sin disparar el efecto
+  // ni las dependencias de los useMemo. Esto es lo que impide que el
+  // dashboard en vivo (CVE Auto) haga vibrar el reporte previsualizado.
+  const reportGeneratorRef = useRef(reportGenerator)
+  reportGeneratorRef.current = reportGenerator
 
+  // ----------------------------------------------------------
+  // FIX: el hash se calcula SOLO cuando se abre el modal.
+  // `previewExportedAt` se fija en el momento de la apertura y
+  // permanece estable durante toda la previsualización.
+  // ----------------------------------------------------------
   useEffect(() => {
-    let cancelled = false
     if (!previewModal) {
+      setPreviewExportedAt(null)
       setIntegrityHash(null)
       return
     }
-    reportGenerator
-      .computeIntegrityHash()
+
+    // Congelamos el timestamp al abrir el modal.
+    const exportedAt = new Date().toISOString()
+    setPreviewExportedAt(exportedAt)
+
+    let cancelled = false
+    reportGeneratorRef.current
+      .computeIntegrityHash(exportedAt)
       .then((h) => {
         if (!cancelled) setIntegrityHash(h)
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('[DashboardPanel] Error calculando hash:', err)
         if (!cancelled) setIntegrityHash(null)
       })
+
     return () => {
       cancelled = true
     }
-  }, [previewModal, reportGenerator])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewModal]) // ← NO dependemos de reportGenerator a propósito
 
   // ==========================================================
-  // CONTENIDO MEMOIZADO
-  // ----------------------------------------------------------
-  // CRÍTICO: sin esto, generateMarkdown()/generateHTML() corren
-  // en cada render del panel (hover, búsqueda, scroll) → el iframe
-  // se remonta → el scroll del preview se resetea.
-  //
-  // Solo recalculamos cuando el modal está abierto Y cambia algo
-  // relevante: filteredData, includeCvss, signature, hash.
+  // FIX: los useMemo NO dependen de `reportGenerator`.
+  // Leen del ref y solo se recalculan cuando cambia `previewModal`,
+  // `previewExportedAt` o `integrityHash` (todos estables durante
+  // la previsualización). Así el iframe no se recarga, el scroll
+  // se mantiene y CVE Auto no hace vibrar el reporte.
   // ==========================================================
+
   const mdContent = useMemo(() => {
     if (previewModal !== 'md') return ''
-    return reportGenerator.generateMarkdown(integrityHash ?? undefined)
-  }, [previewModal, reportGenerator, integrityHash])
+    if (!previewExportedAt) return ''
+    try {
+      return reportGeneratorRef.current.generateMarkdown(
+        integrityHash ?? undefined,
+        previewExportedAt,
+      )
+    } catch (e) {
+      console.error('[generateMarkdown] error:', e)
+      return `# ERROR generando MD\n\n\`\`\`\n${String(e)}\n\`\`\`\n`
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewModal, previewExportedAt, integrityHash])
 
   const htmlContent = useMemo(() => {
     if (previewModal !== 'html') return ''
-    return reportGenerator.generateHTML(integrityHash ?? undefined)
-  }, [previewModal, reportGenerator, integrityHash])
+    if (!previewExportedAt) return ''
+    try {
+      return reportGeneratorRef.current.generateHTML(
+        integrityHash ?? undefined,
+        previewExportedAt,
+      )
+    } catch (e) {
+      console.error('[generateHTML] error:', e)
+      return `<pre style="color:red;padding:20px;font-family:monospace">ERROR generando HTML: ${String(e)}</pre>`
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewModal, previewExportedAt, integrityHash])
 
   const jsonContent = useMemo(() => {
     if (previewModal !== 'json') return ''
-    const payload = reportGenerator.buildJsonPayload()
+    if (!previewExportedAt) return ''
+    const payload = reportGeneratorRef.current.buildJsonPayload(previewExportedAt)
     const payloadWithHash = integrityHash
       ? { ...payload, hash: integrityHash }
       : payload
     return JSON.stringify(payloadWithHash, null, 2)
-  }, [previewModal, reportGenerator, integrityHash])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewModal, previewExportedAt, integrityHash])
 
-  // ==========================================================
-  // PRINT
-  // ==========================================================
   const handleOpenPrint = useCallback(() => {
     expansion.expandAllWithScripts(filters.filteredData)
     requestAnimationFrame(() => {
@@ -121,9 +155,6 @@ export function DashboardPanel() {
     })
   }, [expansion, filters.filteredData, reportGenerator])
 
-  // ==========================================================
-  // ESTADOS DE CARGA / VACÍO
-  // ==========================================================
   if (isScanning && (!parsedData || parsedData.length === 0)) return <LoadingState />
   if (!parsedData || parsedData.length === 0) {
     return <EmptyState handleImport={reportGenerator.handleImport} />
@@ -132,17 +163,6 @@ export function DashboardPanel() {
   const paginatedData = filters.filteredData.slice(0, filters.visibleCount)
   const pyClass = compactMode ? 'py-1' : 'py-2'
 
-  // Contador de puertos con CPE (útil para saber si el parser los extrajo)
-  const portsWithCpe = parsedData.reduce(
-    (acc, h) => acc + (h.ports?.filter((p) => p.cpe?.length).length ?? 0),
-    0,
-  )
-  const portsWithCves = parsedData.reduce(
-    (acc, h) => acc + (h.ports?.filter((p) => p.cves?.length).length ?? 0),
-    0,
-  )
-
-  // Fecha UTC para el header de impresión
   const nowUtcIso = new Date().toISOString()
 
   return (
@@ -194,7 +214,7 @@ export function DashboardPanel() {
 
           <button
             onClick={toggleCveAutoEnrich}
-            title="Buscar CVEs reales en NVD al recibir un scan"
+            title="Enriquecer puertos con CVEs reales de NVD"
             className={
               'w-full text-[9px] font-bold uppercase py-1.5 rounded shadow-sm transition-colors border ' +
               (cveAutoEnrich
@@ -214,11 +234,9 @@ export function DashboardPanel() {
         </div>
       </div>
 
-      {/* Debug mínimo: solo cuando hay CPE/CVE, para verificar el pipeline */}
-      {(portsWithCpe > 0 || portsWithCves > 0) && (
-        <div className="text-[9px] font-mono text-slate-500 print:hidden">
-          Puertos con CPE: <b>{portsWithCpe}</b> · Puertos con CVEs:{' '}
-          <b>{portsWithCves}</b>
+      {!cveAutoEnrich && (
+        <div className="text-[10px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded px-2 py-1 print:hidden">
+          ⚠ CVE Auto está apagado. Los contadores de severidad y el reporte no incluirán CVEs.
         </div>
       )}
 
@@ -231,7 +249,6 @@ export function DashboardPanel() {
         historyData={historyData}
       />
 
-      {/* LISTA DE HOSTS */}
       <div className="flex-1 overflow-visible space-y-4 pb-8 print:block print:space-y-6">
         <div className="hidden print:block mb-8 border-b-2 border-[#0b282c] pb-4 print-force-colors">
           <h1 className="text-3xl font-black text-[#0b282c] uppercase tracking-widest font-['Poppins']">

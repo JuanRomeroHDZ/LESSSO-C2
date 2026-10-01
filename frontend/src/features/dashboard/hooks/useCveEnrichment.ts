@@ -1,18 +1,14 @@
 // ==========================================================
-// useCveEnrichment
+// useCveEnrichment (v3)
 // ----------------------------------------------------------
-// Enriquece los puertos abiertos del scan actual con CVEs
-// reales de NVD (vía backend).
+// Enriquece los puertos abiertos con CVEs reales de NVD.
 //
-// Reglas clave para no auto-cancelarse:
-//   1. La "firma" del scan debe depender SOLO de datos que
-//      NO cambian durante el enriquecimiento (ip + end_time
-//      + nº de puertos abiertos). NO contar CVEs.
-//   2. El AbortController NO se recrea en cada render de
-//      parsedData: vive en un ref, y solo se aborta cuando
-//      cambia la firma o se desactiva el toggle.
-//   3. Cuando una firma ya se procesó (o está procesándose),
-//      el efecto sale sin tocar nada.
+// Diferencias vs v2:
+//   - setHostCves se llama UNA VEZ al final (no en cada batch).
+//     Esto elimina los re-renders en cascada que bloqueaban
+//     Recharts y el iframe del preview.
+//   - Concurrencia 3 en paralelo.
+//   - Progreso por consola, no en UI (evita re-renders).
 // ==========================================================
 
 import { useEffect, useRef } from 'react'
@@ -22,20 +18,25 @@ import { enrichCVEs } from '../utils/cve'
 import type { CveMatch } from '../utils/cve'
 import type { HostInfo } from '../../../core/store/scanStore'
 
+const CONCURRENCY = 3
+
+interface PendingPort {
+  hostIp: string
+  portKey: string
+  service: string
+  version: string
+  cpe?: string[]
+}
+
 export function useCveEnrichment(): void {
   const parsedData = useScanStoreLocal((s) => s.parsedData)
   const setHostCves = useScanStoreLocal((s) => s.setHostCves)
   const cveAutoEnrich = useUiStore((s) => s.cveAutoEnrich)
 
-  // Firma actual + firma en proceso
-  const currentSignatureRef = useRef<string>('')
   const processingSignatureRef = useRef<string>('')
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    // ------------------------------------------------------
-    // Toggle OFF → abortar lo que haya y limpiar.
-    // ------------------------------------------------------
     if (!cveAutoEnrich) {
       abortRef.current?.abort()
       abortRef.current = null
@@ -51,18 +52,6 @@ export function useCveEnrichment(): void {
     )
     if (validHosts.length === 0) return
 
-    // ------------------------------------------------------
-    // FIRMA ESTABLE
-    // ------------------------------------------------------
-    // Solo datos que NO cambian al enriquecer:
-    //   - ip
-    //   - end_time (marca del scan)
-    //   - nº de puertos abiertos (ya está en parsedData al
-    //     llegar el scan, no cambia al enriquecer)
-    // NO incluimos la firma de los CVEs ni las descripciones,
-    // porque esos SÍ cambian al hacer setHostCves y harían
-    // que el efecto se auto-abortara en bucle.
-    // ------------------------------------------------------
     const signature = validHosts
       .map((h) => {
         const openCount = Array.isArray(h.ports)
@@ -72,96 +61,88 @@ export function useCveEnrichment(): void {
       })
       .join('|')
 
-    currentSignatureRef.current = signature
-
-    // Si ya estamos procesando esta misma firma, no hacemos nada.
     if (processingSignatureRef.current === signature) return
 
-    // Si hay algo en curso, lo abortamos antes de empezar
-    // una nueva firma (scan nuevo, target distinto…).
     abortRef.current?.abort()
     abortRef.current = new AbortController()
     const ac = abortRef.current
     processingSignatureRef.current = signature
 
+    const pending: PendingPort[] = []
+    for (const host of validHosts) {
+      const openPorts = Array.isArray(host.ports)
+        ? host.ports.filter((p) => p.state === 'open')
+        : []
+      for (const p of openPorts) {
+        pending.push({
+          hostIp: host.ip,
+          portKey: `${p.protocol}/${p.portid}`,
+          service: p.service || '',
+          version: p.version || '',
+          cpe: p.cpe,
+        })
+      }
+    }
+
+    if (pending.length === 0) return
+
+    console.info(
+      `[cve] Enriqueciendo ${pending.length} puertos (concurrencia=${CONCURRENCY})…`,
+    )
+
     ;(async () => {
       try {
-        type Pending = {
-          hostIp: string
-          portKey: string
-          service: string
-          version: string
-          cpe?: string[]
-        }
-
-        const pending: Pending[] = []
-        for (const host of validHosts) {
-          const openPorts = Array.isArray(host.ports)
-            ? host.ports.filter((p) => p.state === 'open')
-            : []
-          for (const p of openPorts) {
-            pending.push({
-              hostIp: host.ip,
-              portKey: `${p.protocol}/${p.portid}`,
-              service: p.service || '',
-              version: p.version || '',
-              cpe: p.cpe,
-            })
-          }
-        }
-
-        if (pending.length === 0) return
-
-        // eslint-disable-next-line no-console
-        console.info(
-          `[cve] Enriqueciendo ${pending.length} puertos abiertos con NVD…`,
-        )
-
-        const byHost: Record<string, Record<string, CveMatch[]>> = {}
         let done = 0
+        // Acumulador final: solo flush al terminar.
+        const buffer: Record<string, Record<string, CveMatch[]>> = {}
 
-        for (let i = 0; i < pending.length; i++) {
+        for (let i = 0; i < pending.length; i += CONCURRENCY) {
           if (ac.signal.aborted) return
-          const p = pending[i]
+          const chunk = pending.slice(i, i + CONCURRENCY)
 
-          const [out] = await enrichCVEs(
-            [{ service: p.service, version: p.version, cpe: p.cpe }],
-            ac.signal,
+          const results = await Promise.allSettled(
+            chunk.map((p) =>
+              enrichCVEs(
+                [{ service: p.service, version: p.version, cpe: p.cpe }],
+                ac.signal,
+              ),
+            ),
           )
 
           if (ac.signal.aborted) return
 
-          done++
-          if (!byHost[p.hostIp]) byHost[p.hostIp] = {}
-          byHost[p.hostIp][p.portKey] = out?.cves ?? []
-
-          // Actualizamos el store tras cada item → progreso
-          // incremental. La firma del efecto NO cambia porque
-          // no depende de los CVEs.
-          setHostCves(p.hostIp, byHost[p.hostIp])
-
-          if (done % 3 === 0 || done === pending.length) {
-            // eslint-disable-next-line no-console
-            console.info(`[cve] ${done}/${pending.length} puertos procesados`)
+          for (let j = 0; j < chunk.length; j++) {
+            const p = chunk[j]
+            const r = results[j]
+            const cves: CveMatch[] =
+              r.status === 'fulfilled' && r.value[0] ? r.value[0].cves : []
+            if (!buffer[p.hostIp]) buffer[p.hostIp] = {}
+            buffer[p.hostIp][p.portKey] = cves
           }
+
+          done += chunk.length
+          console.info(`[cve] ${done}/${pending.length} puertos procesados`)
         }
+
+        // ─────────────────────────────────────────────
+        // ÚNICO setHostCves, al final.
+        // ─────────────────────────────────────────────
+        if (ac.signal.aborted) return
+        for (const [hostIp, mapping] of Object.entries(buffer)) {
+          setHostCves(hostIp, mapping)
+        }
+        console.info(`[cve] Enriquecimiento completo (${pending.length} puertos)`)
+      } catch (err) {
+        console.warn('[cve] enrich batch falló:', err)
       } finally {
-        // Solo limpiamos si seguimos siendo la firma activa.
         if (processingSignatureRef.current === signature) {
           processingSignatureRef.current = ''
         }
       }
     })()
-    // Importante: NO abortamos en el cleanup del efecto por
-    // cambios de parsedData. Solo limpiamos al desmontar.
-    // El abort real lo disparan: (a) toggle OFF arriba,
-    // (b) nueva firma detectada arriba.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsedData, cveAutoEnrich, setHostCves])
 
-  // ------------------------------------------------------
-  // Abortar al desmontar
-  // ------------------------------------------------------
   useEffect(() => {
     return () => {
       abortRef.current?.abort()

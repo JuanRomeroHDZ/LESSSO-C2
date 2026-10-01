@@ -4,16 +4,18 @@
 // Dos capas:
 //
 //   1. detectCVEs(...)   → matching local, sync, sin red.
-//                          Es el que usan los tests y el
-//                          fallback offline.
+//                          Fallback para la UI cuando el
+//                          backend no responde. Sus CVEs
+//                          vienen con `source: 'heuristic'`
+//                          y NO se incluyen en el reporte.
 //
 //   2. enrichCVEs(...)   → llama al backend /api/cves/match
-//                          y devuelve CVEs reales con CVSS.
-//                          Se usa desde un efecto al recibir
-//                          un scan.
+//                          y devuelve CVEs reales con CVSS,
+//                          filtrados por versión. Fuente de
+//                          verdad para el reporte.
 //
 // El resultado enriquecido se persiste en `port.cves` del
-// store, y `useDashboardMetrics` lo lee si existe.
+// store, y el reporte solo lee de ahí.
 // ==========================================================
 
 import { api } from '../../../services/api'
@@ -45,7 +47,13 @@ function parseCpe(cpe: string): { vendor: string; product: string; version: stri
 }
 
 // ==========================================================
-// MATCHING HEURÍSTICO (fallback offline, usado por tests)
+// MATCHING HEURÍSTICO (fallback offline, usado por la UI)
+// ----------------------------------------------------------
+// CVEs conocidos de versiones concretas. NO reemplaza al
+// backend; solo sirve para que la UI no quede vacía mientras
+// el enrichment corre o si el backend falla.
+//
+// Estos CVEs NO se incluyen en el reporte exportable.
 // ==========================================================
 function heuristicMatch(service: string, version: string): CveMatch[] {
   const cves: CveMatch[] = []
@@ -95,7 +103,10 @@ function cpeMatch(cpeList: string[]): CveMatch[] {
 }
 
 // ==========================================================
-// API PÚBLICA SYNC (intacta, usada por tests y UI offline)
+// API PÚBLICA SYNC
+// ----------------------------------------------------------
+// Fallback local. La UI la usa para no quedar vacía.
+// El reporte la IGNORA (solo acepta source !== 'heuristic').
 // ==========================================================
 export function detectCVEs(
   service: string,
@@ -145,23 +156,82 @@ interface MatchResponse {
   results: EnrichPortOutput[]
 }
 
-/**
- * Timeout del enriquecimiento. NVD sin API key permite 5 req/30s,
- * así que cada request tarda ~6s. Un scan con 5 puertos abiertos
- * tarda ~30s. Damos margen.
- */
-const ENRICH_TIMEOUT_MS = 90000
+// Timeout para batch. Con API key real, NVD tarda ~1s por item.
+// 25 items = ~25s. 60s da margen.
+const ENRICH_BATCH_TIMEOUT_MS = 60000
+const ENRICH_SINGLE_TIMEOUT_MS = 30000
 
-/**
- * Llama al backend para obtener CVEs reales (con CVSS de NVD).
- *
- * Es best-effort: si el backend o NVD fallan, devuelve un array
- * vacío por item y NO lanza. El llamador puede caer a
- * `detectCVEs(...)` como fallback.
- *
- * Procesamos en LOTES pequeños (uno por uno) para que la UI vea
- * progreso incremental en vez de esperar un batch enorme.
- */
+function normalizeResult(
+  r: Partial<EnrichPortOutput> | undefined,
+  fallbackService: string,
+  fallbackVersion: string,
+): EnrichPortOutput {
+  return {
+    service: r?.service ?? fallbackService,
+    version: r?.version ?? fallbackVersion,
+    cpes: r?.cpes ?? [],
+    cves: (r?.cves ?? []).map((c: any) => ({
+      id: c.id,
+      severity: (c.severity as Severity) || 'unknown',
+      cvss: c.cvss,
+      source: (c.source as CveMatch['source']) || 'nvd',
+      description: c.description,
+      cwe: c.cwe,
+    })),
+    source: r?.source ?? 'nvd',
+    cached: !!r?.cached,
+  }
+}
+
+function emptyResult(service: string, version: string, source = 'fallback'): EnrichPortOutput {
+  return {
+    service,
+    version,
+    cpes: [],
+    cves: [],
+    source,
+    cached: false,
+  }
+}
+
+// ----------------------------------------------------------
+// BATCH (recomendado: 1 request con todos los items)
+// ----------------------------------------------------------
+export async function enrichCVEsBatch(
+  items: EnrichPortInput[],
+  signal?: AbortSignal,
+): Promise<EnrichPortOutput[]> {
+  if (!items.length) return []
+
+  try {
+    const res = await api.post<MatchResponse>(
+      '/api/cves/match',
+      {
+        items: items.map((i) => ({
+          service: i.service || '',
+          version: i.version || '',
+          cpe: i.cpe && i.cpe.length ? i.cpe : undefined,
+        })),
+      },
+      { signal, timeoutMs: ENRICH_BATCH_TIMEOUT_MS },
+    )
+
+    const results = res.results || []
+    return items.map((it, idx) =>
+      normalizeResult(results[idx], it.service, it.version),
+    )
+  } catch (err: any) {
+    if (err?.name === 'AbortError' || signal?.aborted) {
+      return items.map((i) => emptyResult(i.service, i.version, 'fallback'))
+    }
+    console.warn('[cve] enrichCVEsBatch falló:', err?.message || err)
+    return items.map((i) => emptyResult(i.service, i.version, 'fallback'))
+  }
+}
+
+// ----------------------------------------------------------
+// SINGLE (compat legacy)
+// ----------------------------------------------------------
 export async function enrichCVEs(
   items: EnrichPortInput[],
   signal?: AbortSignal,
@@ -187,49 +257,21 @@ export async function enrichCVEs(
             },
           ],
         },
-        { signal, timeoutMs: ENRICH_TIMEOUT_MS },
+        { signal, timeoutMs: ENRICH_SINGLE_TIMEOUT_MS },
       )
 
-      const normalized: EnrichPortOutput = (res.results || []).map((r) => ({
-        service: r.service ?? '',
-        version: r.version ?? '',
-        cpes: r.cpes ?? [],
-        cves: (r.cves ?? []).map((c) => ({
-          id: c.id,
-          severity: (c.severity as Severity) || 'unknown',
-          cvss: c.cvss,
-          source: (c.source as CveMatch['source']) || 'nvd',
-          description: c.description,
-          cwe: (c as any).cwe,
-        })),
-        source: r.source ?? 'nvd',
-        cached: !!r.cached,
-      }))[0] ?? {
-        service: item.service,
-        version: item.version,
-        cpes: [],
-        cves: [],
-        source: 'fallback',
-        cached: false,
-      }
-
+      const normalized = normalizeResult(
+        (res.results || [])[0],
+        item.service,
+        item.version,
+      )
       all.push(normalized)
       onBatch?.(normalized, i)
-    } catch (err) {
-      // No relanzamos: seguimos con el siguiente item.
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[cve] enrichCVEs falló para ${item.service} ${item.version}, usando fallback`,
-        err,
-      )
-      const empty: EnrichPortOutput = {
-        service: item.service,
-        version: item.version,
-        cpes: [],
-        cves: [],
-        source: 'fallback',
-        cached: false,
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || signal?.aborted) {
+        break
       }
+      const empty = emptyResult(item.service, item.version, 'fallback')
       all.push(empty)
       onBatch?.(empty, i)
     }

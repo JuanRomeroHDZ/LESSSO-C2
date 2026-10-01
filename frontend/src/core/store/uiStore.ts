@@ -1,17 +1,10 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-// ==========================================================
-// LESSSO C2 — Firmas del reporte
-// ----------------------------------------------------------
-// Se imprimen al final del reporte MD/HTML. Todos los campos son
-// opcionales: si `name` está vacío, la sección no se renderiza.
-// ==========================================================
 export interface ReportSignature {
   name: string
   role: string
   company: string
-  /** ISO 8601 UTC. Se autogenera al firmar, editable. */
   date: string
 }
 
@@ -32,25 +25,8 @@ export interface UiState {
   activeWorkspace: string;
   quickNotesOpen: boolean;
 
-  /**
-   * Si está activo, al recibir un scan se llama al backend
-   * (`POST /api/cves/match`) para enriquecer cada puerto abierto
-   * con CVEs reales de NVD. Si el backend falla, se cae al
-   * matching heurístico local (`detectCVEs`).
-   */
   cveAutoEnrich: boolean;
-
-  /**
-   * Si está activo, el reporte exportable (MD/HTML) incluye la
-   * columna CVSS en las tablas de vulnerabilidades. Si no, se
-   * omite (útil para reportes ejecutivos sin detalle técnico).
-   */
   includeCvss: boolean;
-
-  /**
-   * Firma del auditor. Se imprime al final del reporte si
-   * `signature.name` no está vacío.
-   */
   signature: ReportSignature;
 
   toggleTheme: () => void;
@@ -134,11 +110,6 @@ export const useUiStore = create<UiState>()(
   )
 )
 
-/**
- * Aplica el tema actual al <html>. Llámalo una vez al montar
- * la app (en `main.tsx` o `App.tsx`) por si acaso el `onRehydrate`
- * no dispara (SSR, tests, etc.).
- */
 export function applyInitialTheme(): void {
   const { theme } = useUiStore.getState();
   if (theme === 'dark') document.documentElement.classList.add('dark');

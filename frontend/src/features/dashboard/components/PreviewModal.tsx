@@ -1,37 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { HostInfo } from "../../../core/store/useScanStore";
 import type { ReportSignature } from "../../../core/store/uiStore";
 import { useUiStore } from "../../../core/store/uiStore";
 import { hashAlgorithmLabel } from "../utils/hash";
-
-// ==========================================================
-// PreviewModal
-// ----------------------------------------------------------
-// Vista previa del reporte antes de guardarlo.
-//
-// Fixes importantes:
-//  1. `htmlContent` se calcula UNA VEZ al abrir el modal con
-//     useMemo, no en cada render del padre. Sin esto, el iframe
-//     se remonta en cada keystroke y resetea el scroll.
-//  2. El wrapper del iframe tiene `overscroll-behavior: contain`
-//     y `touch-action: pan-y` para evitar que la rueda del mouse
-//     se propague al body y haga scroll hacia arriba.
-//  3. El iframe NO usa sandbox="" (bloquea todo, incluido scroll
-//     programático). Usamos un sandbox permisivo solo para scripts
-//     bloqueados, permitiendo same-origin para estilos.
-// ==========================================================
 
 interface PreviewModalProps {
   type: 'md' | 'html' | 'json';
   onClose: () => void;
   onSave: (type: 'md' | 'html' | 'json') => void;
   filteredData: HostInfo[];
-  /** Se calcula una sola vez en el padre y se pasa estable. */
   mdContent: string;
   htmlContent: string;
-  /** Hash de integridad ya calculado (async). null si aún no está listo. */
   integrityHash: string | null;
-  /** Para el preview JSON: payload final incluyendo el hash. */
   jsonContent: string;
 }
 
@@ -53,21 +33,14 @@ export function PreviewModal({
 
   const [showSigForm, setShowSigForm] = useState<boolean>(signature.name.length > 0);
 
-  // Ref al contenedor scrolleable del iframe (para el fix de scroll)
-  const htmlScrollRef = useRef<HTMLDivElement | null>(null);
-
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
-    const prevOverscroll = document.body.style.overscrollBehavior;
     document.body.style.overflow = 'hidden';
-    document.body.style.overscrollBehavior = 'contain';
     return () => {
       document.body.style.overflow = prevOverflow;
-      document.body.style.overscrollBehavior = prevOverscroll;
     };
   }, []);
 
-  // Cerrar con Escape
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -76,10 +49,7 @@ export function PreviewModal({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Fecha de firma por defecto: la del momento en que se abre el form
   const defaultSigDate = useMemo(() => new Date().toISOString(), []);
-
-  // Sello de firma: si el usuario no puso fecha, usamos la de apertura
   const effectiveSigDate = signature.date || defaultSigDate;
 
   const handleSigChange = (field: keyof ReportSignature, value: string) => {
@@ -92,15 +62,13 @@ export function PreviewModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in"
+      className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-6"
       onMouseDown={(e) => {
-        // Cerrar solo si el click fue en el backdrop, no dentro del panel
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div className="bg-white dark:bg-slate-900 w-full max-w-5xl h-[85vh] rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden">
 
-        {/* ===== Header ===== */}
         <div className="flex justify-between items-center px-4 py-3 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shrink-0">
           <div className="flex items-center gap-3">
             <h3 className="text-xs font-bold uppercase text-slate-800 dark:text-slate-200">
@@ -123,7 +91,6 @@ export function PreviewModal({
           </button>
         </div>
 
-        {/* ===== Toolbar config ===== */}
         <div className="px-4 py-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shrink-0">
           <div className="flex flex-wrap items-center gap-4 text-[11px]">
 
@@ -159,11 +126,10 @@ export function PreviewModal({
             )}
 
             <span className="ml-auto text-[9px] text-slate-400 dark:text-slate-500">
-              {filteredData.length} hosts en el reporte
+              {filteredData.length} hosts
             </span>
           </div>
 
-          {/* ===== Form de firma ===== */}
           {showSigForm && (
             <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 p-2 rounded bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
               <input
@@ -221,7 +187,6 @@ export function PreviewModal({
           )}
         </div>
 
-        {/* ===== Contenido ===== */}
         <div className="flex-1 min-h-0 overflow-hidden bg-slate-100 dark:bg-slate-950">
 
           {type === 'json' && (
@@ -241,40 +206,22 @@ export function PreviewModal({
           )}
 
           {type === 'html' && (
-            <div
-              ref={htmlScrollRef}
-              // overscroll-behavior: contain evita que el scroll del iframe
-              // se propague al body del padre (bug de "me regresa para arriba")
-              // touch-action: pan-y asegura que en touchpads no haga zoom/pan-x
+            <iframe
+              title="Preview HTML"
+              sandbox="allow-scripts allow-same-origin"
+              srcDoc={htmlContent}
+              scrolling="yes"
               style={{
                 width: '100%',
                 height: '100%',
-                overflow: 'auto',
-                overscrollBehavior: 'contain',
-                touchAction: 'pan-y',
-                WebkitOverflowScrolling: 'touch',
+                border: 0,
+                display: 'block',
+                background: 'white',
               }}
-            >
-              <iframe
-                title="Preview HTML"
-                // sandbox SIN "" (vacío bloquea todo). Permitimos same-origin
-                // para que el iframe pueda scrollear programáticamente y
-                // cargar estilos inline.
-                sandbox="allow-same-origin"
-                srcDoc={htmlContent}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  border: 0,
-                  display: 'block',
-                  background: 'white',
-                }}
-              />
-            </div>
+            />
           )}
         </div>
 
-        {/* ===== Footer ===== */}
         <div className="p-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 shrink-0">
           <button
             onClick={onClose}
