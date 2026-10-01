@@ -431,12 +431,13 @@ export function NotesPanel() {
   // ==========================================================
   // Preview
   // ==========================================================
+
   const markdownComponents = useMemo(
     () => ({
-      a: ({ node, ...props }: any) => (
+      a: ({ node: _node, ...props }: any) => (
         <a {...props} target="_blank" rel="noopener noreferrer nofollow" />
       ),
-      img: ({ node, ...props }: any) => (
+      img: ({ node: _node, ...props }: any) => (
         <img {...props} loading="lazy" referrerPolicy="no-referrer" />
       ),
     }),

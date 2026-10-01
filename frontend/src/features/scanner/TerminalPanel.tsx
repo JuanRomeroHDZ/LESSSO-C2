@@ -88,7 +88,10 @@ class TabErrorBoundary extends Component<TabErrorBoundaryProps, TabErrorBoundary
 // 1. COLORIZADOR DEL ESCÁNER NMAP
 // ==========================================
 const ColorizeLine = ({ line }: { line: string }) => {
+
+  // eslint-disable-next-line no-control-regex -- Secuencia ANSI de terminal (intencional)
   const cleanLine = line.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '').trim();
+
   if (!cleanLine || cleanLine.startsWith('Stats:') || cleanLine.includes('.~-') || cleanLine.includes('| {}') || cleanLine.includes('`-\'')) return null;
   if (cleanLine.includes('Discovered open port')) return <span className="text-emerald-400 font-semibold">{cleanLine}</span>;
   if (cleanLine.startsWith('Initiating') || cleanLine.startsWith('Completed') || cleanLine.includes('Open')) return <span className="text-indigo-400 italic">{cleanLine}</span>;

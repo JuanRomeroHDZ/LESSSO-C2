@@ -409,9 +409,8 @@ export const useScanStoreLocal = create<ScanState>()(
           gain.gain.setValueAtTime(volume / 100, ctx.currentTime);
           osc.start();
           osc.stop(ctx.currentTime + 0.3);
-        } catch (e) {
+        } catch {
           // Silencioso: si el navegador bloquea el audio, no rompemos la app.
-          void e;
         }
       },
 
@@ -428,7 +427,7 @@ export const useScanStoreLocal = create<ScanState>()(
           }
           if (permissionGranted)
             sendNotification({ title: 'LESSSO C2', body: 'Auditoría Finalizada' });
-        } catch (e) {
+        } catch {
           console.error('Notificaciones no soportadas en este SO.');
         }
       },

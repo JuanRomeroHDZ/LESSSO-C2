@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -76,7 +76,7 @@ jobs:
           key: ${{ matrix.label }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: 'npm'

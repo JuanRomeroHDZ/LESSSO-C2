@@ -362,67 +362,68 @@ export function ArsenalLayout() {
                     </pre>
                   </div>
 
-                  {selectedPayload.category !== 'vuln' || selectedPayload.category === 'vuln' ? (
-                    <details className="group">
-                      <summary className="text-[9px] font-bold uppercase text-slate-500 tracking-widest cursor-pointer hover:text-emerald-500 transition-colors flex items-center gap-1">
-                        <span className="transition-transform group-open:rotate-90">▶</span>
-                        Placeholders
-                      </summary>
-                      <div className="grid grid-cols-2 gap-1.5 mt-2 animate-in fade-in">
-                        <PlaceholderField
-                          label="LHOST"
-                          value={arsenalPlaceholders.LHOST}
-                          onChange={v => setArsenalPlaceholder('LHOST', v)}
-                        />
-                        <PlaceholderField
-                          label="LPORT"
-                          value={arsenalPlaceholders.LPORT}
-                          onChange={v => setArsenalPlaceholder('LPORT', v)}
-                        />
-                        <PlaceholderField
-                          label="TARGET"
-                          value={arsenalPlaceholders.TARGET}
-                          onChange={v => setArsenalPlaceholder('TARGET', v)}
-                        />
-                        <PlaceholderField
-                          label="USER"
-                          value={arsenalPlaceholders.USER}
-                          onChange={v => setArsenalPlaceholder('USER', v)}
-                        />
-                        <PlaceholderField
-                          label="PASS"
-                          value={arsenalPlaceholders.PASS}
-                          onChange={v => setArsenalPlaceholder('PASS', v)}
-                        />
-                        <PlaceholderField
-                          label="HASH"
-                          value={arsenalPlaceholders.HASH}
-                          onChange={v => setArsenalPlaceholder('HASH', v)}
-                        />
-                        <PlaceholderField
-                          label="DOMAIN"
-                          value={arsenalPlaceholders.DOMAIN}
-                          onChange={v => setArsenalPlaceholder('DOMAIN', v)}
-                        />
-                        <PlaceholderField
-                          label="COLLAB"
-                          value={arsenalPlaceholders.COLLAB}
-                          onChange={v => setArsenalPlaceholder('COLLAB', v)}
-                        />
-                        <PlaceholderField
-                          label="PORT"
-                          value={arsenalPlaceholders.PORT}
-                          onChange={v => setArsenalPlaceholder('PORT', v)}
-                        />
-                        <button
-                          onClick={resetArsenalPlaceholders}
-                          className="col-span-2 text-[9px] font-bold uppercase text-slate-500 hover:text-red-500 transition-colors py-1"
-                        >
-                          ↺ Reset placeholders
-                        </button>
-                      </div>
-                    </details>
-                  ) : null}
+
+                  <details className="group">
+                    <summary className="text-[9px] font-bold uppercase text-slate-500 tracking-widest cursor-pointer hover:text-emerald-500 transition-colors flex items-center gap-1">
+                      <span className="transition-transform group-open:rotate-90">▶</span>
+                      Placeholders
+                    </summary>
+                    <div className="grid grid-cols-2 gap-1.5 mt-2 animate-in fade-in">
+                      <PlaceholderField
+                        label="LHOST"
+                        value={arsenalPlaceholders.LHOST}
+                        onChange={v => setArsenalPlaceholder('LHOST', v)}
+                      />
+                      <PlaceholderField
+                        label="LPORT"
+                        value={arsenalPlaceholders.LPORT}
+                        onChange={v => setArsenalPlaceholder('LPORT', v)}
+                      />
+                      <PlaceholderField
+                        label="TARGET"
+                        value={arsenalPlaceholders.TARGET}
+                        onChange={v => setArsenalPlaceholder('TARGET', v)}
+                      />
+                      <PlaceholderField
+                        label="USER"
+                        value={arsenalPlaceholders.USER}
+                        onChange={v => setArsenalPlaceholder('USER', v)}
+                      />
+                      <PlaceholderField
+                        label="PASS"
+                        value={arsenalPlaceholders.PASS}
+                        onChange={v => setArsenalPlaceholder('PASS', v)}
+                      />
+                      <PlaceholderField
+                        label="HASH"
+                        value={arsenalPlaceholders.HASH}
+                        onChange={v => setArsenalPlaceholder('HASH', v)}
+                      />
+                      <PlaceholderField
+                        label="DOMAIN"
+                        value={arsenalPlaceholders.DOMAIN}
+                        onChange={v => setArsenalPlaceholder('DOMAIN', v)}
+                      />
+                      <PlaceholderField
+                        label="COLLAB"
+                        value={arsenalPlaceholders.COLLAB}
+                        onChange={v => setArsenalPlaceholder('COLLAB', v)}
+                      />
+                      <PlaceholderField
+                        label="PORT"
+                        value={arsenalPlaceholders.PORT}
+                        onChange={v => setArsenalPlaceholder('PORT', v)}
+                      />
+                      <button
+                        onClick={resetArsenalPlaceholders}
+                        className="col-span-2 text-[9px] font-bold uppercase text-slate-500 hover:text-red-500 transition-colors py-1"
+                      >
+                        ↺ Reset placeholders
+                      </button>
+                    </div>
+                  </details>
+
+
 
                   <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-2">
                     <div>

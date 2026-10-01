@@ -141,9 +141,17 @@ export function VaultWorkspace() {
           type="password"
           value={passwordVisible}
           onChange={e => handlePasswordChange(e.target.value)}
+
           onKeyDown={(e) => {
-            if (e.key === 'Enter') isNew ? handleSetMaster() : handleUnlock();
+            if (e.key === 'Enter') {
+              if (isNew) {
+                handleSetMaster();
+              } else {
+                handleUnlock();
+              }
+            }
           }}
+
           placeholder="Contraseña Maestra..."
           autoComplete="off"
           spellCheck={false}
