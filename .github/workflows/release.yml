@@ -1,4 +1,4 @@
-wname: Release LESSSO C2
+name: Release LESSSO C2
 
 on:
   push:
@@ -120,6 +120,6 @@ jobs:
             ## Dependencias del sistema
 
             - Linux: `nmap`, `openvpn`, `pkexec`, `wl-clipboard`
-              releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft == 'true' }}
-              prerelease: false
-              args: ${{ matrix.args }}
+          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft == 'true' }}
+          prerelease: false
+          args: ${{ matrix.args }}
