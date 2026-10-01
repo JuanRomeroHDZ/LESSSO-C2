@@ -341,4 +341,3 @@ written authorization is **illegal** in most jurisdictions.
 <p align="center">
   Hecho con 🔰 por <a href="https://github.com/JuanRomeroHDZ">Juan Romero</a>
 </p>
-```
