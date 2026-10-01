@@ -362,4 +362,3 @@ seguridad.
 - [SQLAlchemy async](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
 - [NVD API v2](https://nvd.nist.gov/developers/vulnerabilities)
 - [MITRE ATT&CK](https://attack.mitre.org/)
-```
