@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "LESSSO C2",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "identifier": "com.juanmap.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -44,7 +44,7 @@
     "longDescription": "LESSSO C2 es un workspace ofensivo que integra reconocimiento con Nmap, enriquecimiento de CVEs via NVD API v2, gestion de credenciales, notas de auditoria y generacion de reportes tecnicos (MD/HTML/JSON) con hash de integridad SHA-256.",
     "copyright": "Juan Romero. Todos los derechos reservados.",
     "publisher": "Juan Romero",
-    "homepage": "https://github.com/juanromero/LESSSO-C2",
+    "homepage": "https://github.com/JuanRomeroHDZ/LESSSO-C2",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
