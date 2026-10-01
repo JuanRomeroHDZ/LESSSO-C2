@@ -304,4 +304,3 @@ Las migraciones ligeras se aplican al arrancar.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — Arquitectura interna.
 - [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) — Problemas conocidos.
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — Cómo contribuir.
-```
