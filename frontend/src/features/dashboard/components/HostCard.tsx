@@ -6,6 +6,7 @@ import { ScriptBlock } from './ScriptBlock'
 import { CveList } from './CveList'
 import { detectCVEs } from '../utils/cve'
 import type { CveMatch } from '../utils/cve'
+import { Monitor, Apple, Terminal, Server, Clock, Route, ShieldAlert, Code2 } from 'lucide-react'
 
 interface HostCardProps {
   host: HostInfo
@@ -54,9 +55,6 @@ export function HostCard({
   const hasHostScripts = host.scripts && host.scripts.length > 0
   const hostExpanded = expandedHosts[host.ip]
 
-  // ------------------------------------------------------
-  // CVEs agregados del host
-  // ------------------------------------------------------
   const hostCves = useMemo<CveMatch[]>(() => {
     const out: CveMatch[] = []
     for (const port of host.ports || []) {
@@ -67,7 +65,6 @@ export function HostCard({
         out.push(...detectCVEs(port.service, port.version, port.cpe))
       }
     }
-    // Dedup por id, quedándonos con la severidad más alta.
     const byId = new Map<string, CveMatch>()
     for (const c of out) {
       const prev = byId.get(c.id)
@@ -88,67 +85,67 @@ export function HostCard({
   )
   const cveBadgeColor =
     maxSeverity >= 4
-      ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-300 dark:border-red-800/50'
+      ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
       : maxSeverity >= 3
-        ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border-orange-300 dark:border-orange-800/50'
-        : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800/50'
+        ? 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20 hover:bg-orange-500/20'
+        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
 
   const hostCveKey = `cves-${host.ip}`
   const showHostCves = expandedHosts[hostCveKey]
 
-  let osIcon = '💻'
-  if (host.os.toLowerCase().includes('win')) osIcon = '🪟'
-  if (host.os.toLowerCase().includes('linux')) osIcon = '🐧'
+  let OsIcon = Server
+  if (host.os.toLowerCase().includes('win')) OsIcon = Monitor
+  if (host.os.toLowerCase().includes('linux')) OsIcon = Terminal
   if (
     host.os.toLowerCase().includes('mac') ||
     host.os.toLowerCase().includes('apple')
   )
-    osIcon = '🍎'
+    OsIcon = Apple
 
   const uptime = formatUptime(host.uptime_seconds)
   const distance = host.distance && host.distance > 0 ? host.distance : null
 
   return (
     <div
-      className={`print-page-break print-force-colors bg-white dark:bg-slate-800 rounded-lg shadow-sm border ${
+      className={`print-page-break print-force-colors bg-white dark:bg-[#020617] rounded-xl shadow-sm border ${
         vulns > 0
-          ? 'border-red-300 dark:border-red-900/50 print:border-slate-300'
-          : 'border-slate-200 dark:border-slate-700 print:border-slate-300'
+          ? 'border-rose-500/30 dark:border-rose-900/50 print:border-slate-300'
+          : 'border-slate-200 dark:border-slate-800/60 print:border-slate-300'
       } overflow-hidden flex flex-col print:shadow-none print:bg-white print:text-black`}
     >
-      <div className="bg-slate-50 dark:bg-slate-900/50 px-4 py-2 border-b border-slate-200 dark:border-slate-700 print:bg-white print:border-slate-300">
+      <div className="bg-slate-50 dark:bg-slate-900/40 px-4 py-3 border-b border-slate-200 dark:border-slate-800/80 print:bg-white print:border-slate-300">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-[13px] font-black text-[#0b282c] dark:text-white print:text-black flex items-center gap-1">
-                {osIcon} {host.ip}
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h2 className="text-[14px] font-mono font-black text-slate-900 dark:text-white print:text-black flex items-center gap-1.5 tracking-tight">
+                <OsIcon size={16} className="text-slate-400" /> {host.ip}
               </h2>
               {host.hostname && (
-                <span className="text-[9px] font-bold text-slate-500 bg-slate-200 dark:bg-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 print:bg-slate-100 print:text-slate-800">
+                <span className="text-[10px] font-bold text-slate-500 bg-slate-200/50 dark:bg-slate-800/50 dark:text-slate-300 px-2 py-0.5 rounded-md border border-slate-300/50 dark:border-slate-700/50 print:bg-slate-100 print:text-slate-800 tracking-wider uppercase">
                   {host.hostname}
                 </span>
               )}
               {host.mac && (
-                <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 print:text-slate-700">
+                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-500 print:text-slate-700">
                   {host.mac}
                   {host.mac_vendor ? ` (${host.mac_vendor})` : ''}
                 </span>
               )}
             </div>
 
-            <div className="flex gap-1.5 items-center mt-1 flex-wrap">
+            <div className="flex gap-2 items-center mt-2 flex-wrap">
               <span
-                className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
+                className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-md tracking-wider border ${
                   host.status === 'up'
-                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400'
-                    : 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400'
+                    ? 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border-teal-500/20'
+                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
                 } print:border print:bg-slate-100 print:text-black`}
               >
                 {host.status}
               </span>
               <span
                 title={`Score: ${score}/100`}
-                className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${color} print:bg-slate-100 print:text-black print:border`}
+                className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-md tracking-wider border ${color} print:bg-slate-100 print:text-black print:border`}
               >
                 Sec Grade: {grade}
               </span>
@@ -160,38 +157,38 @@ export function HostCard({
                       ? `Último arranque: ${host.uptime_lastboot}`
                       : 'Uptime'
                   }
-                  className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300 print:bg-slate-100 print:text-black print:border"
+                  className="flex items-center gap-1 text-[9px] font-bold uppercase px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 print:bg-slate-100 print:text-black print:border tracking-wider"
                 >
-                  ⏱ {uptime}
+                  <Clock size={10} /> {uptime}
                 </span>
               )}
 
               {distance !== null && (
                 <span
                   title={`Saltos de red: ${distance}`}
-                  className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 print:bg-slate-100 print:text-black print:border"
+                  className="flex items-center gap-1 text-[9px] font-bold uppercase px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 print:bg-slate-100 print:text-black print:border tracking-wider"
                 >
-                  ⇢ {distance} hop{distance === 1 ? '' : 's'}
+                  <Route size={10} /> {distance} hop{distance === 1 ? '' : 's'}
                 </span>
               )}
 
               {hostCves.length > 0 && (
                 <button
                   onClick={() => toggleHostExpand(hostCveKey)}
-                  className={`px-1.5 py-0.5 text-[9px] font-bold uppercase rounded-md border hover:opacity-80 transition-opacity flex items-center gap-1 ${cveBadgeColor}`}
+                  className={`px-2 py-0.5 text-[9px] font-bold uppercase rounded-md border transition-all flex items-center gap-1 tracking-wider ${cveBadgeColor}`}
                 >
-                  {showHostCves ? 'Ocultar CVEs' : `[+] ${hostCves.length} CVEs`}
+                  <ShieldAlert size={10} />
+                  {showHostCves ? 'Ocultar CVEs' : `${hostCves.length} CVEs`}
                 </button>
               )}
 
               {hasHostScripts && (
                 <button
                   onClick={() => toggleHostExpand(host.ip)}
-                  className="px-1.5 py-0.5 bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400 text-[9px] font-bold uppercase rounded-md border border-teal-300 dark:border-teal-800/50 hover:bg-teal-200 flex items-center gap-1 transition-colors print:hidden"
+                  className="px-2 py-0.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-[9px] font-bold uppercase rounded-md border border-indigo-500/20 hover:bg-indigo-500/20 flex items-center gap-1 transition-all tracking-wider print:hidden"
                 >
-                  {hostExpanded
-                    ? 'Ocultar Info Extra'
-                    : `[+] ${host.scripts!.length} Scripts de Host`}
+                  <Code2 size={10} />
+                  {hostExpanded ? 'Ocultar Scripts' : `${host.scripts!.length} Scripts`}
                 </button>
               )}
             </div>
@@ -200,16 +197,16 @@ export function HostCard({
       </div>
 
       {showHostCves && hostCves.length > 0 && (
-        <div className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700 p-3 print:bg-white print:border-slate-300 print:break-inside-avoid">
-          <div className="text-[9px] font-bold text-slate-500 uppercase mb-2">
-            CVEs detectados en este host
+        <div className="bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-200 dark:border-slate-800/80 p-4 print:bg-white print:border-slate-300 print:break-inside-avoid">
+          <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
+            <ShieldAlert size={12} /> CVEs detectados en este host
           </div>
           <CveList cves={hostCves} />
         </div>
       )}
 
       {hostExpanded && hasHostScripts && (
-        <div className="bg-[#0b1120] border-b border-slate-700 p-3 overflow-x-auto custom-scrollbar shadow-inner print:bg-slate-50 print:border-slate-300 print:shadow-none print:break-inside-avoid">
+        <div className="bg-slate-900 dark:bg-black/40 border-b border-slate-800/80 p-4 overflow-x-auto custom-scrollbar shadow-inner print:bg-slate-50 print:border-slate-300 print:shadow-none print:break-inside-avoid">
           {host.scripts?.map((s, sidx) => (
             <ScriptBlock key={sidx} script={s} />
           ))}

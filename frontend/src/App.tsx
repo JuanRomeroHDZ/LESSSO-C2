@@ -1,18 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useScanStore } from './core/store/useScanStore';
+import { useUiStore } from './core/store/uiStore';
 import { TerminalPanel } from './features/scanner/TerminalPanel';
 
 import { Header } from './components/layout/Header';
-import { Sidebar, type ActiveWorkspace } from './components/layout/Sidebar';
+import { Sidebar } from './components/layout/Sidebar';
 import { Footer } from './components/layout/Footer';
 import { WorkspaceRouter } from './components/layout/WorkspaceRouter';
 
-export default function App() {
-  const [activeWorkspace, setActiveWorkspace] = useState<ActiveWorkspace>('recon');
-  const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+// Definimos el tipo estricto que requiere tu WorkspaceRouter
+type WorkspaceType = 'recon' | 'topo' | 'fuzz' | 'arsenal' | 'cerebro' | 'intel';
 
-  const { theme, setParsedData, appendOutput, checkVpnStatus, pingBackend } = useScanStore();
+export default function App() {
+  // Manejo de estado visual centralizado
+  const { theme, activeWorkspace, isTerminalOpen } = useUiStore();
+  const { setParsedData, appendOutput, checkVpnStatus, pingBackend } = useScanStore();
 
   useEffect(() => {
     checkVpnStatus();
@@ -58,13 +61,14 @@ export default function App() {
 
   return (
     <div className={`${theme} flex flex-col h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-200 font-sans transition-colors duration-200 print:bg-white print:text-black`}>
-      <Header setIsTerminalOpen={setIsTerminalOpen} />
+      <Header />
 
       <div className="flex flex-1 overflow-hidden min-h-0 relative print:h-auto print:overflow-visible">
-        <Sidebar activeWorkspace={activeWorkspace} setActiveWorkspace={setActiveWorkspace} />
+        <Sidebar />
 
         <main className="flex-1 flex flex-col min-w-0 print:h-auto print:overflow-visible">
-          <WorkspaceRouter activeWorkspace={activeWorkspace} />
+          {/* Aquí aplicamos el casteo estricto para que TypeScript no se queje */}
+          <WorkspaceRouter activeWorkspace={activeWorkspace as WorkspaceType} />
 
           {(activeWorkspace === 'recon' || activeWorkspace === 'topo') && (
             <div className={`border-t border-slate-300 dark:border-slate-700 bg-[#0b1120] transition-all duration-300 shrink-0 print:hidden ${isTerminalOpen ? 'h-[30vh]' : 'h-0 hidden'}`}>
@@ -74,7 +78,7 @@ export default function App() {
         </main>
       </div>
 
-      <Footer isTerminalOpen={isTerminalOpen} setIsTerminalOpen={setIsTerminalOpen} />
+      <Footer />
     </div>
   );
 }

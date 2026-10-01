@@ -1,19 +1,43 @@
-export type ActiveWorkspace = 'recon' | 'topo' | 'fuzz' | 'arsenal' | 'cerebro' | 'intel';
+import { useUiStore } from '../../core/store/uiStore';
+import { Crosshair, Network, Bomb, ShieldAlert, Cpu, BookOpen } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
-interface SidebarProps {
-  activeWorkspace: ActiveWorkspace;
-  setActiveWorkspace: (w: ActiveWorkspace) => void;
-}
+const WORKSPACES = [
+  { id: 'recon', icon: Crosshair, label: 'Reconocimiento' },
+  { id: 'topo', icon: Network, label: 'Topología' },
+  { id: 'fuzz', icon: Bomb, label: 'Fuzzing & Enum' },
+  { id: 'arsenal', icon: ShieldAlert, label: 'Arsenal' },
+  { id: 'cerebro', icon: Cpu, label: 'Cerebro (Notas)' },
+  { id: 'intel', icon: BookOpen, label: 'OSINT & Intel' },
+] as const;
 
-export function Sidebar({ activeWorkspace, setActiveWorkspace }: SidebarProps) {
+export function Sidebar() {
+  const { activeWorkspace, setActiveWorkspace } = useUiStore();
+
   return (
-    <aside className="w-16 shrink-0 bg-slate-100 dark:bg-slate-900/50 border-r border-slate-200 dark:border-slate-800 flex flex-col items-center py-4 z-20 print:hidden gap-4">
-      <button onClick={() => setActiveWorkspace('recon')} title="Reconocimiento (Nmap/Dashboard)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'recon' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📊</span></button>
-      <button onClick={() => setActiveWorkspace('topo')} title="Topología de Red" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'topo' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🕸</span></button>
-      <button onClick={() => setActiveWorkspace('fuzz')} title="Web Fuzzer Visualizer" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'fuzz' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🌐</span></button>
-      <button onClick={() => setActiveWorkspace('arsenal')} title="Arsenal (Shells, Vulns, Services, Crypto, Listener)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'arsenal' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧰</span></button>
-      <button onClick={() => setActiveWorkspace('cerebro')} title="Cerebro (Bóveda y Bitácora)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'cerebro' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">🧠</span></button>
-      <button onClick={() => setActiveWorkspace('intel')} title="Threat Intelligence (MITRE ATT&CK)" className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center transition-all ${activeWorkspace === 'intel' ? 'bg-[#0b282c] text-white shadow-lg shadow-[#0b282c]/30' : 'text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'}`}><span className="text-xl">📖</span></button>
+    <aside className="w-14 shrink-0 bg-slate-50 dark:bg-[#09090b] border-r border-slate-200 dark:border-slate-800/60 flex flex-col items-center py-4 gap-2 z-20 print:hidden">
+      {WORKSPACES.map((ws) => {
+        const isActive = activeWorkspace === ws.id;
+        const Icon = ws.icon;
+        return (
+          <button
+            key={ws.id}
+            onClick={() => setActiveWorkspace(ws.id)}
+            title={ws.label}
+            className={cn(
+              "p-2.5 rounded-xl transition-all duration-200 group relative",
+              isActive 
+                ? "bg-[#0b282c] dark:bg-teal-500/10 text-white dark:text-teal-400" 
+                : "text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200"
+            )}
+          >
+            <Icon size={20} strokeWidth={isActive ? 2.5 : 2} />
+            {isActive && (
+              <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-[#0b282c] dark:bg-teal-400 rounded-r-full" />
+            )}
+          </button>
+        );
+      })}
     </aside>
   );
 }

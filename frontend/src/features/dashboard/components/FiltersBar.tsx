@@ -1,4 +1,5 @@
 import type { HostInfo } from '../../../core/store/useScanStore';
+import { Search, Activity, Globe, ShieldAlert, Monitor, AlignJustify } from 'lucide-react';
 
 interface FiltersBarProps {
   search: string;
@@ -30,35 +31,51 @@ export function FiltersBar({
   const triggerReset = () => setVisibleCount(20);
 
   return (
-    <div className="flex flex-col sm:flex-row gap-3 shrink-0 print:hidden justify-between items-center bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => { setSearch(e.target.value); triggerReset(); }}
-        placeholder="Buscar IP, port:22, os:linux..."
-        className="flex-1 px-3 py-1 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded text-[11px] outline-none dark:text-white"
-      />
+    <div className="flex flex-col xl:flex-row gap-3 shrink-0 print:hidden justify-between items-center bg-white dark:bg-[#020617] p-2 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-sm w-full">
+      <div className="relative flex-1 w-full min-w-[200px]">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); triggerReset(); }}
+          placeholder="Buscar IP, port:22, os:linux..."
+          className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs outline-none dark:text-white font-mono focus:border-teal-500 focus:ring-1 focus:ring-teal-500/50 transition-all"
+        />
+      </div>
 
-      <div className="flex gap-1.5 flex-wrap">
-        <button onClick={() => { setFilterUp(!filterUp); triggerReset(); }} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterUp ? 'bg-[#0b282c] border-[#0b282c] text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🟢 Activos</button>
-        <button onClick={() => { setFilterWeb(!filterWeb); triggerReset(); }} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterWeb ? 'bg-[#0b282c] border-[#0b282c] text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🌐 Web</button>
-        <button onClick={() => { setFilterVuln(!filterVuln); triggerReset(); }} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterVuln ? 'bg-red-600 border-red-600 text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🚨 CVEs</button>
+      <div className="flex gap-2 flex-wrap items-center justify-center lg:justify-end w-full xl:w-auto">
+        <button onClick={() => { setFilterUp(!filterUp); triggerReset(); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors border flex items-center gap-1.5 ${filterUp ? 'bg-teal-500/10 border-teal-500/30 text-teal-600 dark:text-teal-400 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-900'}`}>
+          <Activity size={12}/> Activos
+        </button>
+        <button onClick={() => { setFilterWeb(!filterWeb); triggerReset(); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors border flex items-center gap-1.5 ${filterWeb ? 'bg-sky-500/10 border-sky-500/30 text-sky-600 dark:text-sky-400 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-900'}`}>
+          <Globe size={12}/> Web
+        </button>
+        <button onClick={() => { setFilterVuln(!filterVuln); triggerReset(); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors border flex items-center gap-1.5 ${filterVuln ? 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-900'}`}>
+          <ShieldAlert size={12}/> CVEs
+        </button>
         
-        <div className="h-6 w-px bg-slate-300 dark:bg-slate-600 mx-1"></div>
+        <div className="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-1 hidden sm:block"></div>
         
-        <select value={filterOS} onChange={(e) => {setFilterOS(e.target.value as any); triggerReset();}} className="px-2 py-1 text-[10px] font-bold uppercase rounded-full border border-slate-200 dark:border-slate-700 bg-transparent text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 outline-none">
-            <option value="all">🖥 OS: Todos</option>
-            <option value="windows">🪟 OS: Windows</option>
-            <option value="linux">🐧 OS: Linux</option>
-        </select>
+        <div className="relative flex items-center">
+          <Monitor size={12} className="absolute left-2.5 text-slate-400 pointer-events-none" />
+          <select value={filterOS} onChange={(e) => {setFilterOS(e.target.value as any); triggerReset();}} className="pl-7 pr-2 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg border border-slate-200 dark:border-slate-800 bg-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900 outline-none cursor-pointer appearance-none">
+            <option value="all">OS: Todos</option>
+            <option value="windows">OS: Windows</option>
+            <option value="linux">OS: Linux</option>
+          </select>
+        </div>
         
-        <button onClick={() => { setFilterCritPorts(!filterCritPorts); triggerReset(); }} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${filterCritPorts ? 'bg-orange-600 border-orange-600 text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>🔥 Pts Críticos</button>
+        <button onClick={() => { setFilterCritPorts(!filterCritPorts); triggerReset(); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors border flex items-center gap-1.5 ${filterCritPorts ? 'bg-orange-500/10 border-orange-500/30 text-orange-600 dark:text-orange-400 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-900'}`}>
+          <Activity size={12}/> Pts Críticos
+        </button>
 
-        <button onClick={toggleCompactMode} className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-colors border ${compactMode ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>≡ Comp</button>
+        <button onClick={toggleCompactMode} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors border flex items-center gap-1.5 ${compactMode ? 'bg-slate-800 border-slate-700 text-white shadow-sm' : 'bg-transparent border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-900'}`}>
+          <AlignJustify size={12}/> Comp
+        </button>
         
-        <label className={`flex items-center space-x-1.5 cursor-pointer px-3 py-1 rounded-full border transition-colors ${historyData.length > 0 ? 'bg-teal-50 dark:bg-teal-900/20 border-teal-200 hover:bg-teal-100' : 'opacity-50 border-slate-200'}`}>
-          <input type="checkbox" checked={showDiff} disabled={historyData.length === 0} onChange={() => setShowDiff(!showDiff)} className="rounded w-3 h-3 accent-[#0b282c]" />
-          <span className="text-[10px] font-bold uppercase text-teal-700 dark:text-teal-400">Diff</span>
+        <label className={`flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-lg border transition-colors ${historyData.length > 0 ? 'bg-indigo-500/10 border-indigo-500/30 hover:bg-indigo-500/20' : 'opacity-40 border-slate-200 dark:border-slate-800'}`}>
+          <input type="checkbox" checked={showDiff} disabled={historyData.length === 0} onChange={() => setShowDiff(!showDiff)} className="rounded w-3 h-3 accent-indigo-500" />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400">Diff</span>
         </label>
       </div>
     </div>

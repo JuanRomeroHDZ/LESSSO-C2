@@ -55,17 +55,8 @@ use std::os::unix::process::CommandExt;
 // 1. TIPOS Y ESTADO GLOBAL
 // ==========================================================
 
-/// PID del escaneo Nmap/RustScan en curso.
 struct ScanProcess(AtomicI32);
 
-/// Estado global de las terminales.
-///
-/// Guardamos DOS mapas:
-///   - `pids`:    session_id → PID del proceso principal
-///   - `children`: session_id → Child (para stdout/stdin)
-///
-/// Tener el PID por separado nos permite matar sin depender del
-/// `Child::kill()` de Rust (que no espera correctamente).
 struct TerminalState {
     pids: Mutex<HashMap<String, i32>>,
     children: Mutex<HashMap<String, Child>>,
@@ -79,10 +70,6 @@ impl TerminalState {
         }
     }
 }
-
-// ----------------------------------------------------------
-// Modelos de datos para el parser Nmap
-// ----------------------------------------------------------
 
 #[derive(serde::Serialize, Clone)]
 struct ScriptInfo {
@@ -152,7 +139,6 @@ struct ScanResult {
 // 2. HELPERS DE PROCESOS
 // ==========================================================
 
-/// Comprueba si un PID sigue vivo con `kill(pid, 0)`.
 #[cfg(unix)]
 fn pid_alive(pid: i32) -> bool {
     if pid <= 0 {
@@ -166,7 +152,6 @@ fn pid_alive(_pid: i32) -> bool {
     false
 }
 
-/// Envía una señal a un PID individual.
 #[cfg(unix)]
 fn kill_pid(pid: i32, signal: i32) -> bool {
     if pid <= 0 {
@@ -180,9 +165,6 @@ fn kill_pid(_pid: i32, _signal: i32) -> bool {
     false
 }
 
-/// Mata un PID con SIGKILL, espera a que muera, con timeout.
-///
-/// Devuelve true si el proceso murió (o ya estaba muerto).
 #[cfg(unix)]
 fn force_kill_pid(pid: i32, timeout_ms: u64) -> bool {
     if pid <= 0 {
@@ -192,10 +174,8 @@ fn force_kill_pid(pid: i32, timeout_ms: u64) -> bool {
         return true;
     }
 
-    // SIGTERM primero (amable)
     kill_pid(pid, libc::SIGTERM);
 
-    // Esperar hasta timeout_ms
     let steps = timeout_ms / 50;
     for _ in 0..steps {
         std::thread::sleep(Duration::from_millis(50));
@@ -204,10 +184,8 @@ fn force_kill_pid(pid: i32, timeout_ms: u64) -> bool {
         }
     }
 
-    // SIGKILL definitivo
     kill_pid(pid, libc::SIGKILL);
 
-    // Esperar otros 500ms a que muera
     for _ in 0..10 {
         std::thread::sleep(Duration::from_millis(50));
         if !pid_alive(pid) {
@@ -223,10 +201,6 @@ fn force_kill_pid(_pid: i32, _timeout_ms: u64) -> bool {
     true
 }
 
-/// Mata un process group entero.
-///
-/// Con `setsid()` aplicado al hijo, el PID es el PGID del grupo.
-/// `kill(-pgid, SIG)` mata a todos los procesos del grupo.
 #[cfg(unix)]
 fn kill_process_group(pgid: i32) {
     if pgid <= 0 {
@@ -259,12 +233,6 @@ fn kill_process_group(pgid: i32) {
     }
 }
 
-/// `pre_exec` que llama a `setsid()` en el hijo tras `fork()`
-/// y antes de `exec()`. Convierte al hijo en líder de su propio
-/// process group, para que `kill(-pgid)` cubra a todos sus
-/// descendientes.
-///
-/// Si `setsid()` falla, imprimimos el error pero NO abortamos.
 #[cfg(unix)]
 fn pre_exec_setsid() -> std::io::Result<()> {
     unsafe {
@@ -278,8 +246,6 @@ fn pre_exec_setsid() -> std::io::Result<()> {
     Ok(())
 }
 
-/// Ejecuta `pkill -9 -f <pattern>` para matar cualquier proceso
-/// cuya línea de comando coincida con el patrón.
 #[cfg(unix)]
 fn pkill_pattern(pattern: &str) -> usize {
     let output = Command::new("pkill").args(["-9", "-f", pattern]).output();
@@ -301,7 +267,6 @@ fn pkill_pattern(_pattern: &str) -> usize {
     0
 }
 
-/// Conecta stdout/stderr de un child a eventos Tauri.
 fn wire_scan_streams(app: &AppHandle, child: &mut Child, event_name: &str) {
     if let Some(stdout) = child.stdout.take() {
         let app_out = app.clone();
@@ -718,8 +683,9 @@ fn validate_ovpn_file(path: &Path) -> Result<(), String> {
         "chroot",
         "user",
         "group",
-        "persist-key",
-        "persist-tun",
+        // Desbloqueados para permitir configs HTB/THM
+        // "persist-key",
+        // "persist-tun",
     ];
 
     for (line_num, raw_line) in content.lines().enumerate() {
@@ -889,18 +855,6 @@ fn build_nmap_command(clean_args: &[String], target: &str, xml_path: &str) -> Co
     cmd
 }
 
-/// Parser del XML de Nmap.
-///
-/// Extrae:
-///   - Metadatos globales del `<nmaprun>` (scanner, versión, args, fechas).
-///   - Por host: IP, MAC + vendor, hostnames, status, OS + precisión,
-///     uptime, distance, scripts de host y fechas.
-///   - Por puerto: estado, razón, servicio, versión, product, extrainfo,
-///     ostype, devicetype, tunnel, CPEs, servicefp y scripts.
-///   - ExtraPorts agrupados por estado (closed/filtered).
-///
-/// Devuelve un JSON con forma `ScanResult` (objeto con `hosts` + metadatos).
-/// Elimina el XML temporal al terminar.
 fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
     use roxmltree::Document;
 
@@ -910,18 +864,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
 
     let xml_text = std::fs::read_to_string(xml_path).map_err(|e| e.to_string())?;
 
-    // ------------------------------------------------------------------
-    // Saneado de DOCTYPE (anti-XXE / billion laughs)
-    //
-    // Un DOCTYPE puede tener dos formas:
-    //   1) Simple:  <!DOCTYPE nmaprun>
-    //   2) Interno: <!DOCTYPE lolz [<!ENTITY lol "lol">...]>
-    //
-    // El caso 2 tiene `>` internos que cierran entidades y NO
-    // cierran el DOCTYPE. Contamos corchetes `[` y `]` para saber
-    // cuándo termina realmente el DOCTYPE, y solo entonces
-    // eliminamos el bloque completo.
-    // ------------------------------------------------------------------
     let mut safe_xml = xml_text.clone();
     if let Some(start) = safe_xml.find("<!DOCTYPE") {
         let after_start = &safe_xml[start..];
@@ -950,10 +892,8 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
     }
 
     let doc = Document::parse(&safe_xml).map_err(|e| format!("Error de parseo XML: {}", e))?;
-
     let root = doc.root_element();
 
-    // ---- Metadatos globales de <nmaprun> ----
     let mut scan_result = ScanResult {
         hosts: Vec::new(),
         scanner: root.attribute("scanner").unwrap_or("nmap").to_string(),
@@ -966,7 +906,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
         elapsed: String::new(),
     };
 
-    // <runstats><finished ... />
     if let Some(runstats) = root.descendants().find(|n| n.has_tag_name("runstats"))
         && let Some(finished) = runstats.descendants().find(|n| n.has_tag_name("finished"))
     {
@@ -978,7 +917,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
     let mut host_map: HashMap<String, HostInfo> = HashMap::new();
 
     for host_node in root.descendants().filter(|n| n.has_tag_name("host")) {
-        // ---- Direcciones ----
         let mut ip = String::new();
         let mut mac = String::new();
         let mut mac_vendor = String::new();
@@ -1003,7 +941,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             continue;
         }
 
-        // ---- Hostnames ----
         let mut hostnames = Vec::new();
         if let Some(hns_node) = host_node
             .descendants()
@@ -1020,7 +957,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
         }
         let hostname = hostnames.join(", ");
 
-        // ---- Status ----
         let status_node = host_node.descendants().find(|n| n.has_tag_name("status"));
         let status = status_node
             .and_then(|n| n.attribute("state"))
@@ -1031,7 +967,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             .unwrap_or("")
             .to_string();
 
-        // ---- OS ----
         let mut os = String::new();
         let mut os_accuracy = String::new();
         if let Some(os_match) = host_node.descendants().find(|n| n.has_tag_name("osmatch")) {
@@ -1039,7 +974,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             os_accuracy = os_match.attribute("accuracy").unwrap_or("").to_string();
         }
 
-        // ---- Uptime ----
         let mut uptime_seconds: u64 = 0;
         let mut uptime_lastboot = String::new();
         if let Some(up) = host_node.descendants().find(|n| n.has_tag_name("uptime")) {
@@ -1050,7 +984,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             uptime_lastboot = up.attribute("lastboot").unwrap_or("").to_string();
         }
 
-        // ---- Distance (traceroute) ----
         let distance: u32 = host_node
             .descendants()
             .find(|n| n.has_tag_name("distance"))
@@ -1058,11 +991,9 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(0);
 
-        // ---- Fechas por host (si existen atributos en <host>) ----
         let start_time = host_node.attribute("starttime").unwrap_or("").to_string();
         let end_time = host_node.attribute("endtime").unwrap_or("").to_string();
 
-        // ---- Host scripts ----
         let mut host_scripts = Vec::new();
         if let Some(hostscript_node) = host_node
             .descendants()
@@ -1078,7 +1009,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             }
         }
 
-        // ---- Puertos ----
         let mut ports: Vec<PortInfo> = Vec::new();
         for port_node in host_node.descendants().filter(|n| n.has_tag_name("port")) {
             let portid = port_node.attribute("portid").unwrap_or("").to_string();
@@ -1116,20 +1046,9 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
 
                 version = format!("{} {}", product, ver).trim().to_string();
 
-                // ------------------------------------------------------------------
-                // CPEs — recolección robusta
-                //
-                // Estrategia triple (en orden, con deduplicación):
-                //   1. Hijos directos <cpe> del <service> (lo habitual en Nmap).
-                //   2. Cualquier descendiente <cpe> (por si Nmap los anida raro).
-                //   3. Atributo `cpe` del <service> (algunas builds de Nmap lo ponen).
-                //
-                // Cada CPE se normaliza: trim, sin entidades HTML residuales.
-                // ------------------------------------------------------------------
                 let mut seen_cpes: std::collections::HashSet<String> =
                     std::collections::HashSet::new();
 
-                // 1) Hijos directos
                 for child in svc_node.children() {
                     if child.has_tag_name("cpe")
                         && let Some(text) = child.text()
@@ -1141,7 +1060,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
                     }
                 }
 
-                // 2) Descendientes (por si están anidados)
                 for cpe_node in svc_node.descendants().filter(|n| n.has_tag_name("cpe")) {
                     if let Some(text) = cpe_node.text() {
                         let t = text.trim().to_string();
@@ -1151,7 +1069,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
                     }
                 }
 
-                // 3) Atributo `cpe` (fallback)
                 if let Some(attr_cpe) = svc_node.attribute("cpe") {
                     let t = attr_cpe.trim().to_string();
                     if !t.is_empty() && seen_cpes.insert(t.clone()) {
@@ -1185,7 +1102,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             });
         }
 
-        // ---- ExtraPorts ----
         let mut extraports: Vec<ExtraPorts> = Vec::new();
         for ep_node in host_node
             .descendants()
@@ -1212,7 +1128,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             });
         }
 
-        // ---- Merge por IP ----
         host_map
             .entry(ip.clone())
             .and_modify(|existing_host| {
@@ -1436,24 +1351,7 @@ fn cancel_nmap(state: State<'_, ScanProcess>) {
 // ==========================================================
 // 7. TERMINALES — ARQUITECTURA POR PROCESS GROUP
 // ==========================================================
-//
-// CAMBIO FUNDAMENTAL vs v4:
-//
-//   Antes guardábamos el PID y matábamos solo el PID. Eso fallaba
-//   cuando `bash` spawneaba hijos (nmap, python, nc dentro de bash).
-//
-//   Ahora aplicamos `setsid()` en el hijo vía `pre_exec`. El hijo
-//   se convierte en líder de su propio process group, y al hacer
-//   `kill(-pgid, SIGKILL)` matamos a él Y a todos sus descendientes
-//   de un solo golpe.
-//
-//   Además, `kill_sweep` ahora mata también `bash -i` y `gobuster`
-//   por patrón, como red de seguridad final.
-// ==========================================================
 
-/// Lanza un proceso y guarda su PID + Child.
-///
-/// El hijo es líder de su propio process group (vía `setsid()`).
 #[tauri::command]
 async fn start_terminal(
     app: AppHandle,
@@ -1469,8 +1367,6 @@ async fn start_terminal(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    // Aísla el hijo en su propio process group para que
-    // kill(-pgid) cubra a todos sus descendientes.
     #[cfg(unix)]
     unsafe {
         command.pre_exec(pre_exec_setsid);
@@ -1493,11 +1389,6 @@ async fn start_terminal(
         let mut children = state.children.lock().unwrap();
         children.insert(session_id.clone(), child);
     }
-
-    println!(
-        "[start_terminal] session='{}', pid={}, cmd={}",
-        session_id, pid, cmd
-    );
 
     let app_out = app.clone();
     let sid_out = session_id.clone();
@@ -1533,7 +1424,6 @@ async fn start_terminal(
     Ok(())
 }
 
-/// Escribe datos al stdin del proceso.
 #[tauri::command]
 async fn write_terminal(
     state: State<'_, TerminalState>,
@@ -1551,7 +1441,6 @@ async fn write_terminal(
     Err("Sesión no encontrada o stdin cerrado".into())
 }
 
-/// Envía una señal al PID del proceso principal de la sesión.
 #[tauri::command]
 async fn send_terminal_signal(
     state: State<'_, TerminalState>,
@@ -1565,11 +1454,6 @@ async fn send_terminal_signal(
             .ok_or_else(|| format!("Sesión '{}' no encontrada", session_id))?
     };
 
-    // En Windows, libc solo expone SIGINT/SIGTERM/SIGILL/SIGABRT/etc.
-    // SIGTSTP y SIGKILL son POSIX. Para que compile en las 3 plataformas,
-    // devolvemos un error claro en Windows cuando se pide una señal que
-    // ese SO no soporta. En la práctica, en Windows matamos con
-    // `kill_terminal` (TaskKill), no con señales.
     let signal = match signal_name.as_str() {
         "SIGINT" => libc::SIGINT,
         #[cfg(unix)]
@@ -1593,16 +1477,9 @@ async fn send_terminal_signal(
     }
 
     kill_pid(pid, signal);
-
-    println!(
-        "[send_terminal_signal] session='{}', pid={}, signal={}",
-        session_id, pid, signal_name
-    );
-
     Ok(())
 }
 
-/// Cierra una sesión matando el process group completo.
 #[tauri::command]
 async fn kill_terminal(state: State<'_, TerminalState>, session_id: String) -> Result<(), String> {
     let pid_opt = {
@@ -1615,8 +1492,6 @@ async fn kill_terminal(state: State<'_, TerminalState>, session_id: String) -> R
     };
 
     if let Some(pid) = pid_opt {
-        println!("[kill_terminal] session='{}', pid={}", session_id, pid);
-
         #[cfg(unix)]
         {
             kill_process_group(pid);
@@ -1636,7 +1511,6 @@ async fn kill_terminal(state: State<'_, TerminalState>, session_id: String) -> R
     Ok(())
 }
 
-/// Mata TODAS las terminales que empiecen por `session_prefix`.
 #[tauri::command]
 async fn kill_all_terminals(
     state: State<'_, TerminalState>,
@@ -1697,7 +1571,6 @@ async fn kill_all_terminals(
 // ==========================================================
 
 fn kill_sweep(app: &AppHandle) {
-    // ─── 1. Terminales por PID + process group ─────────────
     if let Some(state) = app.try_state::<TerminalState>() {
         let pids: Vec<i32> = {
             let mut pids = match state.pids.lock() {
@@ -1710,7 +1583,6 @@ fn kill_sweep(app: &AppHandle) {
         };
 
         for pid in pids {
-            println!("[kill_sweep] Matando process group PID {}", pid);
             #[cfg(unix)]
             kill_process_group(pid);
             let _ = force_kill_pid(pid, 500);
@@ -1730,37 +1602,25 @@ fn kill_sweep(app: &AppHandle) {
         }
     }
 
-    // ─── 2. Red de seguridad por patrón ────────────────────
     #[cfg(unix)]
     {
         for pattern in &["nc -lvnp", "bash -i", "lessso-bash-"] {
-            let killed = pkill_pattern(pattern);
-            if killed > 0 {
-                println!("[kill_sweep] pkill mató procesos: '{}'", pattern);
-            }
+            let _ = pkill_pattern(pattern);
         }
     }
 
-    // ─── 3. Nmap / RustScan ────────────────────────────────
     if let Some(scan) = app.try_state::<ScanProcess>() {
         let pid = scan.0.load(Ordering::SeqCst);
         if pid > 0 {
             kill_process_group(pid);
             scan.0.store(-1, Ordering::SeqCst);
-            println!("[kill_sweep] Detenido escaneo PID {}", pid);
         }
     }
 
-    // ─── 4. Gobuster ───────────────────────────────────────
     #[cfg(unix)]
     {
-        let killed = pkill_pattern("gobuster");
-        if killed > 0 {
-            println!("[kill_sweep] pkill mató gobuster residual");
-        }
+        let _ = pkill_pattern("gobuster");
     }
-
-    println!("[kill_sweep] Limpieza completa");
 }
 
 // ==========================================================
@@ -1814,9 +1674,6 @@ async fn run_fuzzer(app: AppHandle, target_url: String, wordlist: String) -> Res
         });
     }
 
-    // No esperamos al child: corre en background.
-    // Lo mata `kill_sweep` al cerrar la app, o el usuario con
-    // `kill_all_terminals` si lo desea.
     Ok(())
 }
 
@@ -1865,420 +1722,4 @@ pub fn run() {
                 kill_sweep(app_handle);
             }
         });
-}
-
-// ==========================================================
-// 10. TESTS
-// ==========================================================
-// Tests unitarios de las funciones puras del core.
-//
-// No tocan Tauri, ni AppHandle, ni procesos reales. Solo
-// verifican lógica determinista:
-//   - strip_output_flags
-//   - nmap_needs_root
-//   - pid_alive / kill_pid (con el PID actual, seguro)
-//   - validate_ovpn_file (con archivos temporales)
-//   - encrypt_vault / decrypt_vault (roundtrip con argon2 + aes-gcm)
-//   - parse_nmap_xml (con un XML mínimo fixture)
-//
-// Ejecutar:
-//   cargo test --lib
-//   cargo test --lib -- --nocapture
-// ==========================================================
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::io::Write;
-
-    // ======================================================
-    // strip_output_flags
-    // ======================================================
-    #[test]
-    fn strip_output_flags_removes_on() {
-        let args = vec!["-sV".to_string(), "-oN".to_string(), "out.txt".to_string()];
-        let cleaned = strip_output_flags(args);
-        assert_eq!(cleaned, vec!["-sV".to_string()]);
-    }
-
-    #[test]
-    fn strip_output_flags_removes_ox() {
-        let args = vec![
-            "-sS".to_string(),
-            "-oX".to_string(),
-            "out.xml".to_string(),
-            "-p".to_string(),
-            "80".to_string(),
-        ];
-        let cleaned = strip_output_flags(args);
-        assert_eq!(
-            cleaned,
-            vec!["-sS".to_string(), "-p".to_string(), "80".to_string()]
-        );
-    }
-
-    #[test]
-    fn strip_output_flags_removes_joined_form() {
-        let args = vec!["-sV".to_string(), "-oXout.xml".to_string()];
-        let cleaned = strip_output_flags(args);
-        assert_eq!(cleaned, vec!["-sV".to_string()]);
-    }
-
-    #[test]
-    fn strip_output_flags_keeps_unrelated_o_flags() {
-        // "-O" (detección de OS) NO debe filtrarse.
-        let args = vec!["-O".to_string(), "-sV".to_string()];
-        let cleaned = strip_output_flags(args);
-        assert_eq!(cleaned, vec!["-O".to_string(), "-sV".to_string()]);
-    }
-
-    #[test]
-    fn strip_output_flags_empty() {
-        let args: Vec<String> = vec![];
-        assert!(strip_output_flags(args).is_empty());
-    }
-
-    // ======================================================
-    // nmap_needs_root
-    // ======================================================
-    #[test]
-    fn nmap_needs_root_syn_scan() {
-        let args = vec!["-sS".to_string(), "-p".to_string(), "80".to_string()];
-        assert!(nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_os_detection() {
-        let args = vec!["-O".to_string()];
-        assert!(nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_udp() {
-        let args = vec!["-sU".to_string()];
-        assert!(nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_fragmentation() {
-        let args = vec!["-f".to_string()];
-        assert!(nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_mtu() {
-        let args = vec!["--mtu".to_string(), "16".to_string()];
-        assert!(nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_decoy() {
-        let args = vec!["-D".to_string(), "RND:5".to_string()];
-        assert!(nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_spoof_mac() {
-        let args = vec!["--spoof-mac".to_string(), "0".to_string()];
-        assert!(nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_connect_scan_no_root() {
-        // -sT (TCP connect) NO necesita root.
-        let args = vec!["-sT".to_string(), "-p".to_string(), "80".to_string()];
-        assert!(!nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_ping_scan_no_root() {
-        let args = vec!["-sn".to_string()];
-        assert!(!nmap_needs_root(&args));
-    }
-
-    #[test]
-    fn nmap_needs_root_empty() {
-        let args: Vec<String> = vec![];
-        assert!(!nmap_needs_root(&args));
-    }
-
-    // ======================================================
-    // pid_alive / kill_pid (seguros con PID propio)
-    // ======================================================
-    #[test]
-    fn pid_alive_current_process() {
-        let me = std::process::id() as i32;
-        assert!(pid_alive(me));
-    }
-
-    #[test]
-    fn pid_alive_invalid() {
-        assert!(!pid_alive(0));
-        assert!(!pid_alive(-1));
-    }
-
-    #[test]
-    fn pid_alive_nonexistent() {
-        // PID 999999 es casi seguro que no existe (rango máximo 4194304
-        // en Linux, pero es improbable que esté ocupado).
-        // Este test es best-effort: si existe, se salta.
-        if !pid_alive(999999) {
-            assert!(!pid_alive(999999));
-        }
-    }
-
-    #[test]
-    fn kill_pid_invalid_returns_false() {
-        assert!(!kill_pid(0, libc::SIGTERM));
-        assert!(!kill_pid(-1, libc::SIGTERM));
-    }
-
-    // ======================================================
-    // validate_ovpn_file
-    // ======================================================
-    fn write_tmp_file(content: &str) -> PathBuf {
-        let mut path = std::env::temp_dir();
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        path.push(format!("lessso_test_{}.ovpn", ts));
-        let mut f = fs::File::create(&path).expect("create tmp");
-        f.write_all(content.as_bytes()).expect("write tmp");
-        path
-    }
-
-    #[test]
-    fn ovpn_valid_minimal() {
-        let path = write_tmp_file("client\nremote 1.2.3.4 1194\nproto udp\ndev tun\n");
-        let result = validate_ovpn_file(&path);
-        let _ = fs::remove_file(&path);
-        assert!(result.is_ok(), "archivo válido rechazado: {:?}", result);
-    }
-
-    #[test]
-    fn ovpn_rejects_script_security() {
-        let path = write_tmp_file("client\nscript-security 2\nup /tmp/evil.sh\n");
-        let result = validate_ovpn_file(&path);
-        let _ = fs::remove_file(&path);
-        assert!(result.is_err());
-        let msg = result.unwrap_err();
-        assert!(msg.contains("script-security") || msg.contains("up"));
-    }
-
-    #[test]
-    fn ovpn_rejects_plugin() {
-        let path = write_tmp_file("client\nplugin /tmp/evil.so\n");
-        let result = validate_ovpn_file(&path);
-        let _ = fs::remove_file(&path);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn ovpn_rejects_up_directive() {
-        let path = write_tmp_file("client\nup /tmp/evil.sh\n");
-        let result = validate_ovpn_file(&path);
-        let _ = fs::remove_file(&path);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn ovpn_ignores_comments() {
-        let path = write_tmp_file("# script-security 2\n; up /tmp/evil.sh\nclient\n");
-        let result = validate_ovpn_file(&path);
-        let _ = fs::remove_file(&path);
-        assert!(result.is_ok(), "comentarios no deben contar: {:?}", result);
-    }
-
-    #[test]
-    fn ovpn_rejects_nonexistent_file() {
-        let path = PathBuf::from("/tmp/definitely_not_a_real_file_lessso.ovpn");
-        let result = validate_ovpn_file(&path);
-        assert!(result.is_err());
-    }
-
-    // ======================================================
-    // encrypt_vault / decrypt_vault
-    // ======================================================
-    #[tokio::test]
-    async fn vault_roundtrip_ok() {
-        let plaintext = "secret payload with unicode 🔐 and \n newlines";
-        let password = "SuperSecret123!";
-
-        let encrypted = encrypt_vault(plaintext.to_string(), password.to_string())
-            .await
-            .expect("encrypt falló");
-
-        // El ciphertext debe ser Base64 no vacío.
-        assert!(!encrypted.is_empty());
-        assert_ne!(encrypted, plaintext);
-
-        let decrypted = decrypt_vault(encrypted, password.to_string())
-            .await
-            .expect("decrypt falló");
-
-        assert_eq!(decrypted, plaintext);
-    }
-
-    #[tokio::test]
-    async fn vault_wrong_password_fails() {
-        let encrypted = encrypt_vault("data".to_string(), "correct".to_string())
-            .await
-            .expect("encrypt falló");
-
-        let result = decrypt_vault(encrypted, "wrong".to_string()).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn vault_empty_password_rejected() {
-        let enc = encrypt_vault("data".to_string(), "".to_string()).await;
-        assert!(enc.is_err());
-
-        let dec = decrypt_vault("bogus".to_string(), "".to_string()).await;
-        assert!(dec.is_err());
-    }
-
-    #[tokio::test]
-    async fn vault_corrupt_base64_rejected() {
-        let result = decrypt_vault("not-valid-base64!!!".to_string(), "password".to_string()).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn vault_two_encryptions_differ() {
-        // Cada encrypt usa salt+nonce aleatorios → ciphertexts distintos.
-        let a = encrypt_vault("same".to_string(), "pw".to_string())
-            .await
-            .unwrap();
-        let b = encrypt_vault("same".to_string(), "pw".to_string())
-            .await
-            .unwrap();
-        assert_ne!(a, b, "salt/nonce deben ser aleatorios");
-    }
-
-    // ======================================================
-    // parse_nmap_xml
-    // ======================================================
-    const SAMPLE_NMAP_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE nmaprun>
-<nmaprun scanner="nmap" args="nmap -sV 127.0.0.1" start="1700000000" startstr="2024-01-01 00:00:00" version="7.94">
-  <host starttime="1700000001" endtime="1700000002">
-    <status state="up" reason="localhost-response"/>
-    <address addr="127.0.0.1" addrtype="ipv4"/>
-    <hostnames>
-      <hostname name="localhost" type="PTR"/>
-    </hostnames>
-    <ports>
-      <port protocol="tcp" portid="22">
-        <state state="open" reason="syn-ack" reason_ttl="64"/>
-        <service name="ssh" product="OpenSSH" version="9.6" extrainfo="Ubuntu" ostype="Linux">
-          <cpe>cpe:2.3:a:openbsd:openssh:9.6:*:*:*:*:*:*:*</cpe>
-        </service>
-      </port>
-      <port protocol="tcp" portid="80">
-        <state state="open" reason="syn-ack" reason_ttl="64"/>
-        <service name="http" product="nginx" version="1.24.0"/>
-      </port>
-    </ports>
-  </host>
-  <runstats>
-    <finished time="1700000010" timestr="2024-01-01 00:00:10" elapsed="10.00" summary="Nmap done" exit="success"/>
-  </runstats>
-</nmaprun>
-"#;
-
-    fn write_tmp_xml(content: &str) -> String {
-        let mut path = std::env::temp_dir();
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        path.push(format!("lessso_test_{}.xml", ts));
-        let mut f = fs::File::create(&path).expect("create tmp xml");
-        f.write_all(content.as_bytes()).expect("write tmp xml");
-        path.to_string_lossy().to_string()
-    }
-
-    #[test]
-    fn parse_nmap_xml_basic() {
-        let path = write_tmp_xml(SAMPLE_NMAP_XML);
-        let result = parse_nmap_xml(&path);
-        assert!(result.is_ok(), "parse falló: {:?}", result);
-
-        let json = result.unwrap();
-        let v: serde_json::Value = serde_json::from_str(&json).expect("json inválido");
-
-        assert_eq!(v["scanner"], "nmap");
-        assert_eq!(v["scanner_version"], "7.94");
-        assert_eq!(v["elapsed"], "10.00");
-
-        let hosts = v["hosts"].as_array().expect("hosts no es array");
-        assert_eq!(hosts.len(), 1);
-
-        let h = &hosts[0];
-        assert_eq!(h["ip"], "127.0.0.1");
-        assert_eq!(h["status"], "up");
-        assert_eq!(h["hostname"], "localhost");
-
-        let ports = h["ports"].as_array().expect("ports no es array");
-        assert_eq!(ports.len(), 2);
-
-        let ssh = ports
-            .iter()
-            .find(|p| p["portid"] == "22")
-            .expect("no encontró 22");
-        assert_eq!(ssh["service"], "ssh");
-        assert_eq!(ssh["product"], "OpenSSH");
-        assert_eq!(ssh["extrainfo"], "Ubuntu");
-        assert_eq!(ssh["ostype"], "Linux");
-
-        let cpes = ssh["cpe"].as_array().expect("cpe no es array");
-        assert_eq!(cpes.len(), 1);
-        assert!(cpes[0].as_str().unwrap().contains("openssh"));
-    }
-
-    #[test]
-    fn parse_nmap_xml_missing_file() {
-        let result = parse_nmap_xml("/tmp/definitely_not_a_real_nmap_file_lessso.xml");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn parse_nmap_xml_strips_doctype() {
-        // Un XML con DOCTYPE peligroso no debe explotar (billion laughs).
-        let xml = r#"<?xml version="1.0"?>
-<!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;">]>
-<nmaprun scanner="nmap" version="7.94">
-  <host>
-    <status state="up" reason="test"/>
-    <address addr="10.0.0.1" addrtype="ipv4"/>
-    <ports></ports>
-  </host>
-</nmaprun>
-"#;
-        let path = write_tmp_xml(xml);
-        let result = parse_nmap_xml(&path);
-        assert!(
-            result.is_ok(),
-            "DOCTYPE debió ser neutralizado: {:?}",
-            result
-        );
-
-        let v: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
-        let hosts = v["hosts"].as_array().unwrap();
-        assert_eq!(hosts.len(), 1);
-        assert_eq!(hosts[0]["ip"], "10.0.0.1");
-    }
-
-    #[test]
-    fn parse_nmap_xml_removes_file_after_parse() {
-        let path = write_tmp_xml(SAMPLE_NMAP_XML);
-        let _ = parse_nmap_xml(&path);
-        assert!(
-            !Path::new(&path).exists(),
-            "el XML temporal debe eliminarse tras parsear"
-        );
-    }
 }
