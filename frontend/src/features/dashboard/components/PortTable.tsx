@@ -1,5 +1,5 @@
 import { Fragment } from 'react';
-import type { HostInfo } from '../../../core/store/useScanStore';
+import type { HostInfo } from '../../../core/store/scanStore';
 import { IANA_PORTS } from '../utils/constants';
 import { detectCVEs } from '../utils/cve';
 import { ScriptBlock } from './ScriptBlock';
@@ -31,10 +31,14 @@ export function PortTable({
         </thead>
         <tbody>
           {!host.ports || host.ports.length === 0 ? (
-            <tr><td colSpan={5} className="px-3 py-2 text-center text-slate-400 text-[10px]">Sin puertos abiertos</td></tr>
+            <tr>
+              <td colSpan={5} className="px-3 py-2 text-center text-slate-400 text-[10px]">
+                Sin puertos abiertos
+              </td>
+            </tr>
           ) : (
             host.ports.map((port) => {
-              const cvList = detectCVEs(port.service, port.version);
+              const cvList = detectCVEs(port.service, port.version, port.cpe);
               const ianaDesc = IANA_PORTS[port.portid];
               const pastHost = historyData.find(h => h.ip === host.ip);
               const isNewPort = showDiff && pastHost && !(pastHost.ports || []).some(p => p.portid === port.portid);
@@ -43,42 +47,65 @@ export function PortTable({
               const hasScripts = port.scripts && port.scripts.length > 0;
               const isExpanded = expandedPorts[portKey];
 
+              const cpes = port.cpe && port.cpe.length > 0 ? port.cpe : [];
+
               return (
                 <Fragment key={portKey}>
                   <tr className={`border-b border-slate-50 dark:border-slate-700/50 hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors ${isNewPort ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''} print:border-slate-200 print:break-inside-avoid`}>
                     <td className={`px-3 ${pyClass} font-bold text-slate-900 dark:text-slate-200 print:text-black flex items-center gap-1`}>
                       {hasScripts && (
-                        <button onClick={() => togglePortExpand(portKey)} className="text-[9px] w-4 h-4 flex items-center justify-center bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-400 font-black rounded hover:bg-teal-500 hover:text-white transition-colors print:hidden">
+                        <button
+                          onClick={() => togglePortExpand(portKey)}
+                          className="text-[9px] w-4 h-4 flex items-center justify-center bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-400 font-black rounded hover:bg-teal-500 hover:text-white transition-colors print:hidden"
+                        >
                           {isExpanded ? '-' : '+'}
                         </button>
                       )}
                       {port.portid}/{port.protocol}
-                      {isNewPort && <span className="ml-1 bg-emerald-500 text-white text-[8px] px-1 py-0.5 rounded-sm">NUEVO</span>}
+                      {isNewPort && (
+                        <span className="ml-1 bg-emerald-500 text-white text-[8px] px-1 py-0.5 rounded-sm">
+                          NUEVO
+                        </span>
+                      )}
                     </td>
                     <td className={`px-3 ${pyClass}`}>
                       <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase w-fit ${port.state === 'open' ? 'text-emerald-600 dark:text-emerald-400 print:text-emerald-700' : 'text-orange-500 dark:text-orange-400 print:text-orange-600'}`}>
                         {port.state}
                       </span>
                     </td>
-                    <td className={`px-3 ${pyClass} font-medium text-slate-700 dark:text-slate-300 print:text-slate-800 flex flex-col`}>
-                      <span>{port.service || '-'}</span>
-                      {ianaDesc && !compactMode && <span className="text-[8px] text-[#0b282c] dark:text-teal-400">{ianaDesc}</span>}
+                    <td className={`px-3 ${pyClass} font-medium text-slate-700 dark:text-slate-300 print:text-slate-800`}>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-semibold">{port.service || '-'}</span>
+                        {ianaDesc && !compactMode && (
+                          <span className="text-[9px] text-slate-500 dark:text-slate-400">{ianaDesc}</span>
+                        )}
+                        {cpes.length > 0 && (
+                          <span className="text-[9px] font-mono text-teal-600 dark:text-teal-400 print:text-slate-700 mt-0.5 break-all leading-tight">
+                            {cpes.join(' · ')}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className={`px-3 ${pyClass} text-slate-500 dark:text-slate-400 print:text-slate-600`}>
                       {port.version || '-'}
                     </td>
-                    <td className={`px-3 ${pyClass} flex justify-end gap-1.5`}>
-                      {cvList.length > 0 ? (
-                        <div className="flex flex-col gap-1">
-                          {cvList.map((v, i) => (
-                            <span key={i} className={`text-white text-[9px] px-1.5 py-0.5 rounded font-bold w-fit print:border ${v.severity === 'critical' ? 'bg-red-600 print:border-red-600' : 'bg-orange-500 print:border-orange-500'}`}>
-                              {compactMode ? '⚠' : v.id}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        !compactMode && <span className="text-[9px] text-slate-400 print:text-slate-500">Ok</span>
-                      )}
+                    <td className={`px-3 ${pyClass}`}>
+                      <div className="flex justify-end gap-1.5">
+                        {cvList.length > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            {cvList.map((v, i) => (
+                              <span
+                                key={i}
+                                className={`text-white text-[9px] px-1.5 py-0.5 rounded font-bold w-fit print:border ${v.severity === 'critical' ? 'bg-red-600 print:border-red-600' : 'bg-orange-500 print:border-orange-500'}`}
+                              >
+                                {compactMode ? '⚠' : v.id}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          !compactMode && <span className="text-[9px] text-slate-400 print:text-slate-500">Ok</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
 

@@ -72,10 +72,24 @@ impl TerminalState {
     }
 }
 
-#[derive(serde::Serialize, Clone)]
-struct ScriptInfo { id: String, output: String }
+// ----------------------------------------------------------
+// Modelos de datos para el parser Nmap
+// ----------------------------------------------------------
 
 #[derive(serde::Serialize, Clone)]
+struct ScriptInfo {
+    id: String,
+    output: String,
+}
+
+#[derive(serde::Serialize, Clone, Default)]
+struct ExtraPorts {
+    state: String,
+    count: u32,
+    reasons: Vec<String>,
+}
+
+#[derive(serde::Serialize, Clone, Default)]
 struct PortInfo {
     portid: String,
     protocol: String,
@@ -83,23 +97,48 @@ struct PortInfo {
     reason: String,
     service: String,
     version: String,
+    product: String,
+    extrainfo: String,
+    ostype: String,
+    devicetype: String,
+    tunnel: String,
+    cpe: Vec<String>,
+    servicefp: String,
     scripts: Vec<ScriptInfo>,
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, Default)]
 struct HostInfo {
     ip: String,
     hostname: String,
     mac: String,
     mac_vendor: String,
     status: String,
+    status_reason: String,
     os: String,
+    os_accuracy: String,
+    uptime_seconds: u64,
+    uptime_lastboot: String,
+    distance: u32,
     ports: Vec<PortInfo>,
+    extraports: Vec<ExtraPorts>,
     scripts: Vec<ScriptInfo>,
+    start_time: String,
+    end_time: String,
 }
 
-#[derive(serde::Serialize)]
-struct ScanResult { hosts: Vec<HostInfo> }
+#[derive(serde::Serialize, Clone, Default)]
+struct ScanResult {
+    hosts: Vec<HostInfo>,
+    scanner: String,
+    scanner_version: String,
+    scan_args: String,
+    start_time: String,
+    start_time_str: String,
+    end_time: String,
+    end_time_str: String,
+    elapsed: String,
+}
 
 // ==========================================================
 // 2. HELPERS DE PROCESOS
@@ -795,13 +834,28 @@ fn build_nmap_command(clean_args: &[String], target: &str, xml_path: &str) -> Co
     cmd
 }
 
+/// Parser del XML de Nmap.
+///
+/// Extrae:
+///   - Metadatos globales del `<nmaprun>` (scanner, versión, args, fechas).
+///   - Por host: IP, MAC + vendor, hostnames, status, OS + precisión,
+///     uptime, distance, scripts de host y fechas.
+///   - Por puerto: estado, razón, servicio, versión, product, extrainfo,
+///     ostype, devicetype, tunnel, CPEs, servicefp y scripts.
+///   - ExtraPorts agrupados por estado (closed/filtered).
+///
+/// Devuelve un JSON con forma `ScanResult` (objeto con `hosts` + metadatos).
+/// Elimina el XML temporal al terminar.
 fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
+    use roxmltree::Document;
+
     if !Path::new(xml_path).exists() {
         return Err("XML no generado.".into());
     }
 
     let xml_text = std::fs::read_to_string(xml_path).map_err(|e| e.to_string())?;
 
+    // Saneado básico: elimina el DOCTYPE para evitar ataques XXE / billion laughs.
     let mut safe_xml = xml_text.clone();
     if let Some(start) = safe_xml.find("<!DOCTYPE") {
         if let Some(end_offset) = safe_xml[start..].find('>') {
@@ -809,12 +863,37 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
         }
     }
 
-    let doc = roxmltree::Document::parse(&safe_xml)
+    let doc = Document::parse(&safe_xml)
         .map_err(|e| format!("Error de parseo XML: {}", e))?;
+
+    let root = doc.root_element();
+
+    // ---- Metadatos globales de <nmaprun> ----
+    let mut scan_result = ScanResult {
+        hosts: Vec::new(),
+        scanner: root.attribute("scanner").unwrap_or("nmap").to_string(),
+        scanner_version: root.attribute("version").unwrap_or("").to_string(),
+        scan_args: root.attribute("args").unwrap_or("").to_string(),
+        start_time: root.attribute("start").unwrap_or("").to_string(),
+        start_time_str: root.attribute("startstr").unwrap_or("").to_string(),
+        end_time: String::new(),
+        end_time_str: String::new(),
+        elapsed: String::new(),
+    };
+
+    // <runstats><finished ... />
+    if let Some(runstats) = root.descendants().find(|n| n.has_tag_name("runstats")) {
+        if let Some(finished) = runstats.descendants().find(|n| n.has_tag_name("finished")) {
+            scan_result.end_time = finished.attribute("time").unwrap_or("").to_string();
+            scan_result.end_time_str = finished.attribute("timestr").unwrap_or("").to_string();
+            scan_result.elapsed = finished.attribute("elapsed").unwrap_or("").to_string();
+        }
+    }
 
     let mut host_map: HashMap<String, HostInfo> = HashMap::new();
 
-    for host_node in doc.descendants().filter(|n| n.has_tag_name("host")) {
+    for host_node in root.descendants().filter(|n| n.has_tag_name("host")) {
+        // ---- Direcciones ----
         let mut ip = String::new();
         let mut mac = String::new();
         let mut mac_vendor = String::new();
@@ -823,15 +902,20 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             let addrtype = addr.attribute("addrtype").unwrap_or("");
             let addr_val = addr.attribute("addr").unwrap_or("").to_string();
             if addrtype == "ipv4" || addrtype == "ipv6" {
-                ip = addr_val;
+                if ip.is_empty() {
+                    ip = addr_val;
+                }
             } else if addrtype == "mac" {
                 mac = addr_val;
                 mac_vendor = addr.attribute("vendor").unwrap_or("").to_string();
             }
         }
 
-        if ip.is_empty() { continue; }
+        if ip.is_empty() {
+            continue;
+        }
 
+        // ---- Hostnames ----
         let mut hostnames = Vec::new();
         if let Some(hns_node) = host_node.descendants().find(|n| n.has_tag_name("hostnames")) {
             for hn_node in hns_node.descendants().filter(|n| n.has_tag_name("hostname")) {
@@ -842,28 +926,66 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
         }
         let hostname = hostnames.join(", ");
 
-        let status = host_node
-            .descendants()
-            .find(|n| n.has_tag_name("status"))
+        // ---- Status ----
+        let status_node = host_node.descendants().find(|n| n.has_tag_name("status"));
+        let status = status_node
             .and_then(|n| n.attribute("state"))
             .unwrap_or("unknown")
             .to_string();
+        let status_reason = status_node
+            .and_then(|n| n.attribute("reason"))
+            .unwrap_or("")
+            .to_string();
 
+        // ---- OS ----
         let mut os = String::new();
+        let mut os_accuracy = String::new();
         if let Some(os_match) = host_node.descendants().find(|n| n.has_tag_name("osmatch")) {
             os = os_match.attribute("name").unwrap_or("").to_string();
+            os_accuracy = os_match.attribute("accuracy").unwrap_or("").to_string();
         }
 
+        // ---- Uptime ----
+        let mut uptime_seconds: u64 = 0;
+        let mut uptime_lastboot = String::new();
+        if let Some(up) = host_node.descendants().find(|n| n.has_tag_name("uptime")) {
+            uptime_seconds = up
+                .attribute("seconds")
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            uptime_lastboot = up.attribute("lastboot").unwrap_or("").to_string();
+        }
+
+        // ---- Distance (traceroute) ----
+        let distance: u32 = host_node
+            .descendants()
+            .find(|n| n.has_tag_name("distance"))
+            .and_then(|n| n.attribute("value"))
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+
+        // ---- Fechas por host (si existen atributos en <host>) ----
+        let start_time = host_node.attribute("starttime").unwrap_or("").to_string();
+        let end_time = host_node.attribute("endtime").unwrap_or("").to_string();
+
+        // ---- Host scripts ----
         let mut host_scripts = Vec::new();
-        if let Some(hostscript_node) = host_node.descendants().find(|n| n.has_tag_name("hostscript")) {
-            for script_node in hostscript_node.descendants().filter(|n| n.has_tag_name("script")) {
+        if let Some(hostscript_node) = host_node
+            .descendants()
+            .find(|n| n.has_tag_name("hostscript"))
+        {
+            for script_node in hostscript_node
+                .descendants()
+                .filter(|n| n.has_tag_name("script"))
+            {
                 let id = script_node.attribute("id").unwrap_or("").to_string();
                 let output = script_node.attribute("output").unwrap_or("").to_string();
                 host_scripts.push(ScriptInfo { id, output });
             }
         }
 
-        let mut ports = Vec::new();
+        // ---- Puertos ----
+        let mut ports: Vec<PortInfo> = Vec::new();
         for port_node in host_node.descendants().filter(|n| n.has_tag_name("port")) {
             let portid = port_node.attribute("portid").unwrap_or("").to_string();
             let protocol = port_node.attribute("protocol").unwrap_or("").to_string();
@@ -880,16 +1002,69 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
 
             let mut service = String::new();
             let mut version = String::new();
+            let mut product = String::new();
+            let mut extrainfo = String::new();
+            let mut ostype = String::new();
+            let mut devicetype = String::new();
+            let mut tunnel = String::new();
+            let mut cpe: Vec<String> = Vec::new();
+            let mut servicefp = String::new();
+
             if let Some(svc_node) = port_node.descendants().find(|n| n.has_tag_name("service")) {
-                service = svc_node.attribute("name").unwrap_or("").to_string();
-                version = format!(
-                    "{} {}",
-                    svc_node.attribute("product").unwrap_or(""),
-                    svc_node.attribute("version").unwrap_or("")
-                )
-                .trim()
-                .to_string();
+    service = svc_node.attribute("name").unwrap_or("").to_string();
+    product = svc_node.attribute("product").unwrap_or("").to_string();
+    let ver = svc_node.attribute("version").unwrap_or("").to_string();
+    extrainfo = svc_node.attribute("extrainfo").unwrap_or("").to_string();
+    ostype = svc_node.attribute("ostype").unwrap_or("").to_string();
+    devicetype = svc_node.attribute("devicetype").unwrap_or("").to_string();
+    tunnel = svc_node.attribute("tunnel").unwrap_or("").to_string();
+    servicefp = svc_node.attribute("servicefp").unwrap_or("").to_string();
+
+    version = format!("{} {}", product, ver).trim().to_string();
+
+    // ------------------------------------------------------------------
+    // CPEs — recolección robusta
+    //
+    // Estrategia triple (en orden, con deduplicación):
+    //   1. Hijos directos <cpe> del <service> (lo habitual en Nmap).
+    //   2. Cualquier descendiente <cpe> (por si Nmap los anida raro).
+    //   3. Atributo `cpe` del <service> (algunas builds de Nmap lo ponen).
+    //
+    // Cada CPE se normaliza: trim, sin entidades HTML residuales.
+    // ------------------------------------------------------------------
+    let mut seen_cpes: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // 1) Hijos directos
+    for child in svc_node.children() {
+        if child.has_tag_name("cpe") {
+            if let Some(text) = child.text() {
+                let t = text.trim().to_string();
+                if !t.is_empty() && seen_cpes.insert(t.clone()) {
+                    cpe.push(t);
+                }
             }
+        }
+    }
+
+    // 2) Descendientes (por si están anidados)
+    for cpe_node in svc_node.descendants().filter(|n| n.has_tag_name("cpe")) {
+        if let Some(text) = cpe_node.text() {
+            let t = text.trim().to_string();
+            if !t.is_empty() && seen_cpes.insert(t.clone()) {
+                cpe.push(t);
+            }
+        }
+    }
+
+    // 3) Atributo `cpe` (fallback)
+    if let Some(attr_cpe) = svc_node.attribute("cpe") {
+        let t = attr_cpe.trim().to_string();
+        if !t.is_empty() && seen_cpes.insert(t.clone()) {
+            cpe.push(t);
+        }
+    }
+}
+
 
             let mut scripts = Vec::new();
             for script_node in port_node.descendants().filter(|n| n.has_tag_name("script")) {
@@ -899,21 +1074,65 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             }
 
             ports.push(PortInfo {
-                portid, protocol, state, reason, service, version, scripts,
+                portid,
+                protocol,
+                state,
+                reason,
+                service,
+                version,
+                product,
+                extrainfo,
+                ostype,
+                devicetype,
+                tunnel,
+                cpe,
+                servicefp,
+                scripts,
             });
         }
 
+        // ---- ExtraPorts ----
+        let mut extraports: Vec<ExtraPorts> = Vec::new();
+        for ep_node in host_node.descendants().filter(|n| n.has_tag_name("extraports")) {
+            let ep_state = ep_node.attribute("state").unwrap_or("").to_string();
+            let ep_count: u32 = ep_node
+                .attribute("count")
+                .and_then(|s| s.parse::<u32>().ok())
+                .unwrap_or(0);
+            let mut reasons: Vec<String> = Vec::new();
+            for er in ep_node.descendants().filter(|n| n.has_tag_name("extrareasons")) {
+                if let Some(r) = er.attribute("reason") {
+                    reasons.push(r.to_string());
+                }
+            }
+            extraports.push(ExtraPorts {
+                state: ep_state,
+                count: ep_count,
+                reasons,
+            });
+        }
+
+        // ---- Merge por IP ----
         host_map
             .entry(ip.clone())
             .and_modify(|existing_host| {
                 for p in ports.clone() {
-                    if !existing_host.ports.iter().any(|ep| ep.portid == p.portid) {
+                    if !existing_host
+                        .ports
+                        .iter()
+                        .any(|ep| ep.portid == p.portid && ep.protocol == p.protocol)
+                    {
                         existing_host.ports.push(p);
                     }
                 }
                 for s in host_scripts.clone() {
                     if !existing_host.scripts.iter().any(|es| es.id == s.id) {
                         existing_host.scripts.push(s);
+                    }
+                }
+                for ep in extraports.clone() {
+                    if !existing_host.extraports.iter().any(|x| x.state == ep.state) {
+                        existing_host.extraports.push(ep);
                     }
                 }
                 if existing_host.mac.is_empty() && !mac.is_empty() {
@@ -923,14 +1142,41 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
                 if existing_host.hostname.is_empty() && !hostname.is_empty() {
                     existing_host.hostname = hostname.clone();
                 }
+                if existing_host.os.is_empty() && !os.is_empty() {
+                    existing_host.os = os.clone();
+                    existing_host.os_accuracy = os_accuracy.clone();
+                }
+                if existing_host.uptime_seconds == 0 && uptime_seconds > 0 {
+                    existing_host.uptime_seconds = uptime_seconds;
+                    existing_host.uptime_lastboot = uptime_lastboot.clone();
+                }
+                if existing_host.distance == 0 && distance > 0 {
+                    existing_host.distance = distance;
+                }
             })
             .or_insert(HostInfo {
-                ip, hostname, mac, mac_vendor, status, os, ports, scripts: host_scripts,
+                ip,
+                hostname,
+                mac,
+                mac_vendor,
+                status,
+                status_reason,
+                os,
+                os_accuracy,
+                uptime_seconds,
+                uptime_lastboot,
+                distance,
+                ports,
+                extraports,
+                scripts: host_scripts,
+                start_time,
+                end_time,
             });
     }
 
-    let hosts: Vec<HostInfo> = host_map.into_values().collect();
-    let result = serde_json::to_string(&ScanResult { hosts }).map_err(|e| e.to_string());
+    scan_result.hosts = host_map.into_values().collect();
+
+    let result = serde_json::to_string(&scan_result).map_err(|e| e.to_string());
     let _ = std::fs::remove_file(xml_path);
     result
 }

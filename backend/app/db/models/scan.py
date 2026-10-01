@@ -1,4 +1,12 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Text,
+    ForeignKey,
+    DateTime,
+    Index,
+)
 from sqlalchemy.orm import relationship, declarative_base
 from datetime import datetime, timezone
 
@@ -15,12 +23,6 @@ def _utc_now() -> datetime:
     en Postgres. Si le pasamos un datetime aware (con tzinfo), asyncpg
     lanza:
         DataError: invalid input for query argument
-    Así que aquí generamos un naive en UTC explícitamente.
-
-    Alternativa (si quieres conservar tzinfo):
-        Column(DateTime(timezone=True), ...)
-    pero entonces hay que mantener la consistencia en todo el proyecto.
-    Por simplicidad y compatibilidad, usamos naive-UTC.
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -83,4 +85,14 @@ class PortModel(Base):
     service = Column(String, nullable=True)
     version = Column(String, nullable=True)
 
+    # --- Enriquecimiento CVE (opcional, se llena tras el match) ---
+    # Guardamos JSON serializado para no forzar un esquema rígido
+    # a los CVEs (que cambian según NVD).
+    cpe = Column(Text, nullable=True)      # JSON: string[]
+    cves = Column(Text, nullable=True)     # JSON: CveMatchOut[]
+
     host = relationship("HostModel", back_populates="ports")
+
+    __table_args__ = (
+        Index("ix_ports_service_version", "service", "version"),
+    )

@@ -1,7 +1,7 @@
 # ==========================================================
 # LESSSO C2 — Backend Dependencies
 # ----------------------------------------------------------
-# FastAPI + SQLAlchemy async + PostgreSQL + Redis
+# FastAPI + SQLAlchemy async + PostgreSQL + Redis + NVD
 # ==========================================================
 
 # --- Web framework ---
@@ -14,8 +14,6 @@ pydantic>=2.9.0
 # --- Database (async) ---
 # ⚠ CRÍTICO: usamos el extra [asyncio] porque SQLAlchemy
 #   async requiere greenlet para funcionar.
-#   Sin este extra, falla con:
-#     ModuleNotFoundError: No module named 'greenlet'
 sqlalchemy[asyncio]>=2.0.36
 
 # --- Async PostgreSQL driver ---
@@ -23,3 +21,6 @@ asyncpg>=0.30.0
 
 # --- Cache / message broker ---
 redis>=5.2.0
+
+# --- HTTP client async (NVD API v2) ---
+httpx>=0.27.0

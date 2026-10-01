@@ -5,9 +5,9 @@ import type { HostInfo, VaultCred } from '../../../core/store/useScanStore'
 import { escapeMdInline, escapeMdCell, escapeMdCode, escapeHtml } from '../utils/escape'
 
 export function useReportGeneration(
-  target: string, 
-  commandString: string, 
-  scanDuration: string, 
+  target: string,
+  commandString: string,
+  scanDuration: string,
   filteredData: HostInfo[],
   vaultCredentials: VaultCred[],
   redTeamNotes: string,
@@ -188,6 +188,19 @@ export function useReportGeneration(
     return html
   }, [target, commandString, scanDuration, filteredData, vaultCredentials, redTeamNotes, includeCredsInExport]);
 
+  /**
+   * Imprime el reporte sin iframes.
+   *
+   * Estrategia:
+   *   1. `window.open('', '_blank')` — ventana real, no sandboxed.
+   *   2. Escribir HTML dentro con `document.write`.
+   *   3. Esperar a `onload` de la ventana.
+   *   4. Llamar `printWindow.focus()` + `printWindow.print()`.
+   *   5. Cerrar la ventana tras imprimir (o dejarla si falla).
+   *
+   * Fallback: si el navegador bloquea el popup, descargamos el HTML
+   * como archivo para que el usuario lo abra a mano e imprima.
+   */
   const handlePrint = useCallback(() => {
     const allPorts: Record<string, boolean> = {}
     const allHosts: Record<string, boolean> = {}
@@ -203,30 +216,52 @@ export function useReportGeneration(
     setTimeout(() => {
       const html = generateHTML()
 
-      const iframe = document.createElement('iframe')
-      iframe.style.position = 'fixed'
-      iframe.style.right = '0'
-      iframe.style.bottom = '0'
-      iframe.style.width = '0'
-      iframe.style.height = '0'
-      iframe.style.border = '0'
-      iframe.setAttribute('sandbox', '')
-      iframe.srcdoc = html
-
-      iframe.onload = () => {
-        try {
-          iframe.contentWindow?.focus()
-          iframe.contentWindow?.print()
-        } catch (err) {
-          console.error('Error al imprimir:', err)
-        } finally {
-          setTimeout(() => {
-            if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
-          }, 60_000)
-        }
+      // 1. Intento con window.open
+      let printWindow: Window | null = null
+      try {
+        printWindow = window.open('', '_blank', 'width=1024,height=768')
+      } catch {
+        printWindow = null
       }
 
-      document.body.appendChild(iframe)
+      if (printWindow) {
+        printWindow.document.open()
+        printWindow.document.write(html)
+        printWindow.document.close()
+
+        // Esperar a que cargue el contenido
+        const triggerPrint = () => {
+          try {
+            printWindow!.focus()
+            printWindow!.print()
+          } catch (err) {
+            console.error('[handlePrint] print() falló:', err)
+          }
+        }
+
+        if (printWindow.document.readyState === 'complete') {
+          setTimeout(triggerPrint, 300)
+        } else {
+          printWindow.onload = () => setTimeout(triggerPrint, 300)
+        }
+        return
+      }
+
+      // 2. Fallback: popup bloqueado → descarga HTML
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `lessso_c2_report_${Date.now()}.html`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+
+      alert(
+        'La ventana de impresión fue bloqueada por el navegador.\n\n' +
+        'Se ha descargado el reporte como HTML. Ábrelo y usa Ctrl+P para imprimirlo.'
+      )
     }, 300)
   }, [filteredData, generateHTML, setExpandedHosts, setExpandedPorts]);
 
