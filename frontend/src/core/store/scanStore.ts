@@ -388,7 +388,7 @@ export const useScanStoreLocal = create<ScanState>()(
           await invoke('cancel_nmap');
           set({ isScanning: false, progressText: '' });
           get().appendOutput('\n[WARN] DETENIDO POR EL USUARIO.');
-        } catch (e) {
+        } catch {
           console.error(e);
         }
       },
@@ -408,7 +408,7 @@ export const useScanStoreLocal = create<ScanState>()(
           gain.gain.setValueAtTime(volume / 100, ctx.currentTime);
           osc.start();
           osc.stop(ctx.currentTime + 0.3);
-        } catch (e) {
+        } catch {
           /* noop */
         }
       },

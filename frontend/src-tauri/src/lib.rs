@@ -25,19 +25,22 @@
 //   9.  Entry point
 // ==========================================================
 
-use std::process::{Command, Stdio, Child};
-use std::io::{BufRead, BufReader, Read, Write};
-use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::Mutex;
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Emitter, State, Manager};
-use base64::{engine::general_purpose, Engine as _};
-use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+use aes_gcm::{
+    Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
+};
+use argon2::{Algorithm, Argon2, Params, Version};
+use base64::{Engine as _, engine::general_purpose};
 use rand::RngCore;
-use argon2::{Argon2, Algorithm, Version, Params};
+use tauri::{AppHandle, Emitter, Manager, State};
 use zeroize::Zeroize;
 
 #[cfg(unix)]
@@ -221,7 +224,9 @@ fn force_kill_pid(_pid: i32, _timeout_ms: u64) -> bool {
 /// `kill(-pgid, SIG)` mata a todos los procesos del grupo.
 #[cfg(unix)]
 fn kill_process_group(pgid: i32) {
-    if pgid <= 0 { return; }
+    if pgid <= 0 {
+        return;
+    }
 
     unsafe {
         libc::kill(-pgid, libc::SIGTERM);
@@ -230,7 +235,9 @@ fn kill_process_group(pgid: i32) {
     for _ in 0..20 {
         std::thread::sleep(Duration::from_millis(100));
         let alive = unsafe { libc::kill(-pgid, 0) == 0 };
-        if !alive { return; }
+        if !alive {
+            return;
+        }
     }
 
     unsafe {
@@ -270,13 +277,15 @@ fn pre_exec_setsid() -> std::io::Result<()> {
 /// cuya línea de comando coincida con el patrón.
 #[cfg(unix)]
 fn pkill_pattern(pattern: &str) -> usize {
-    let output = Command::new("pkill")
-        .args(["-9", "-f", pattern])
-        .output();
+    let output = Command::new("pkill").args(["-9", "-f", pattern]).output();
 
     match output {
         Ok(out) => {
-            if out.status.success() { 1 } else { 0 }
+            if out.status.success() {
+                1
+            } else {
+                0
+            }
         }
         Err(_) => 0,
     }
@@ -292,9 +301,10 @@ fn wire_scan_streams(app: &AppHandle, child: &mut Child, event_name: &str) {
     if let Some(stdout) = child.stdout.take() {
         let app_out = app.clone();
         let ev = event_name.to_string();
+
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 let _ = app_out.emit(&ev, line);
             }
         });
@@ -305,7 +315,7 @@ fn wire_scan_streams(app: &AppHandle, child: &mut Child, event_name: &str) {
         let ev = event_name.to_string();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 let _ = app_err.emit(&ev, line);
             }
         });
@@ -466,8 +476,7 @@ async fn save_clipboard_image(app: AppHandle, base64_data: String) -> Result<Str
     let dir = screenshots_dir(&app)?;
     let file_path = dir.join(format!("capture_{}.png", timestamp));
 
-    std::fs::write(&file_path, &png_bytes)
-        .map_err(|e| format!("Error escribiendo PNG: {}", e))?;
+    std::fs::write(&file_path, &png_bytes).map_err(|e| format!("Error escribiendo PNG: {}", e))?;
 
     Ok(file_path.to_string_lossy().to_string())
 }
@@ -486,15 +495,14 @@ async fn paste_and_save_image(app: AppHandle) -> Result<String, String> {
                         Ok(bytes) => bytes,
                         Err(e) => {
                             eprintln!("[paste] xclip falló: {}", e);
-                            return Err(
-                                "No se pudo leer la imagen del portapapeles.\n\n\
+                            return Err("No se pudo leer la imagen del portapapeles.\n\n\
                                 El portapapeles no contiene una imagen o no hay ningún \
                                 gestor compatible disponible.\n\n\
                                 En Linux (Wayland), instala uno de estos:\n\
                                   sudo apt install wl-clipboard\n\
                                   sudo apt install xclip\n\n\
-                                Y vuelve a intentarlo.".to_string()
-                            );
+                                Y vuelve a intentarlo."
+                                .to_string());
                         }
                     }
                 }
@@ -510,8 +518,7 @@ async fn paste_and_save_image(app: AppHandle) -> Result<String, String> {
     let dir = screenshots_dir(&app)?;
     let file_path = dir.join(format!("capture_{}.png", timestamp));
 
-    std::fs::write(&file_path, &png_bytes)
-        .map_err(|e| format!("Error escribiendo PNG: {}", e))?;
+    std::fs::write(&file_path, &png_bytes).map_err(|e| format!("Error escribiendo PNG: {}", e))?;
 
     Ok(file_path.to_string_lossy().to_string())
 }
@@ -519,10 +526,11 @@ async fn paste_and_save_image(app: AppHandle) -> Result<String, String> {
 fn try_paste_arboard() -> Result<Vec<u8>, String> {
     use arboard::Clipboard;
 
-    let mut clipboard = Clipboard::new()
-        .map_err(|e| format!("arboard: no se pudo acceder: {}", e))?;
+    let mut clipboard =
+        Clipboard::new().map_err(|e| format!("arboard: no se pudo acceder: {}", e))?;
 
-    let img = clipboard.get_image()
+    let img = clipboard
+        .get_image()
         .map_err(|e| format!("arboard: {}", e))?;
 
     let width = img.width as u32;
@@ -532,14 +540,15 @@ fn try_paste_arboard() -> Result<Vec<u8>, String> {
         return Err("arboard: imagen vacía".to_string());
     }
 
-    use image::{ImageBuffer, RgbaImage, ImageFormat};
+    use image::{ImageBuffer, ImageFormat, RgbaImage};
 
     let buffer: RgbaImage = ImageBuffer::from_raw(width, height, img.bytes.to_vec())
         .ok_or_else(|| "arboard: no se pudo crear el buffer".to_string())?;
 
     let mut png_buffer = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut png_buffer);
-    buffer.write_to(&mut cursor, ImageFormat::Png)
+    buffer
+        .write_to(&mut cursor, ImageFormat::Png)
         .map_err(|e| format!("arboard: error codificando PNG: {}", e))?;
 
     Ok(png_buffer)
@@ -558,9 +567,15 @@ fn try_paste_wl_paste() -> Result<Vec<u8>, String> {
     let types = String::from_utf8_lossy(&types_output.stdout);
 
     let candidates = ["image/png", "image/bmp", "image/x-bmp", "image/jpeg"];
-    let chosen_type = candidates.iter()
+    let chosen_type = candidates
+        .iter()
         .find(|t| types.lines().any(|l| l.trim() == **t))
-        .ok_or_else(|| format!("wl-paste: no hay tipo de imagen (disponibles: {})", types.trim()))?;
+        .ok_or_else(|| {
+            format!(
+                "wl-paste: no hay tipo de imagen (disponibles: {})",
+                types.trim()
+            )
+        })?;
 
     let output = Command::new("wl-paste")
         .args(["--no-newline", "--type", chosen_type])
@@ -622,39 +637,41 @@ fn try_paste_xclip() -> Result<Vec<u8>, String> {
 async fn get_network_interfaces() -> Result<Vec<String>, String> {
     let output = Command::new("ip").args(["-o", "link", "show"]).output();
     let mut interfaces = Vec::new();
-    if let Ok(out) = output {
-        if out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            for line in stdout.lines() {
-                let parts: Vec<&str> = line.split(':').collect();
-                if parts.len() > 1 {
-                    let iface_name = parts[1].trim();
-                    if !iface_name.starts_with("lo") {
-                        interfaces.push(iface_name.to_string());
-                    }
+    if let Ok(out) = output
+        && out.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() > 1 {
+                let iface_name = parts[1].trim();
+                if !iface_name.starts_with("lo") {
+                    interfaces.push(iface_name.to_string());
                 }
             }
-            return Ok(interfaces);
         }
+        return Ok(interfaces);
     }
     Err("No se pudieron obtener las interfaces".to_string())
 }
 
 #[tauri::command]
 async fn check_vpn() -> Result<String, String> {
-    let output = Command::new("ip").args(["-4", "addr", "show", "tun0"]).output();
-    if let Ok(out) = output {
-        if out.status.success() {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            if let Some(line) = stdout.lines().find(|l| l.contains("inet ")) {
-                let parts: Vec<&str> = line.trim().split(' ').collect();
-                if parts.len() > 1 {
-                    let ip = parts[1].split('/').next().unwrap_or("");
-                    return Ok(ip.to_string());
-                }
+    let output = Command::new("ip")
+        .args(["-4", "addr", "show", "tun0"])
+        .output();
+    if let Ok(out) = output
+        && out.status.success()
+    {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        if let Some(line) = stdout.lines().find(|l| l.contains("inet ")) {
+            let parts: Vec<&str> = line.trim().split(' ').collect();
+            if parts.len() > 1 {
+                let ip = parts[1].split('/').next().unwrap_or("");
+                return Ok(ip.to_string());
             }
-            return Ok("Conectado".to_string());
         }
+        return Ok("Conectado".to_string());
     }
     Err("Desconectado".to_string())
 }
@@ -675,12 +692,29 @@ fn validate_ovpn_file(path: &Path) -> Result<(), String> {
         .map_err(|e| format!("No se puede leer el archivo .ovpn: {}", e))?;
 
     const FORBIDDEN_DIRECTIVES: &[&str] = &[
-        "script-security", "up", "down", "up-restart", "down-pre",
-        "client-connect", "client-disconnect", "learn-address",
-        "auth-user-pass-verify", "tls-verify", "tls-export-cert",
-        "plugin", "iproute", "route-up", "ipchange",
-        "setenv", "setenv-safe", "cd", "chroot", "user", "group",
-        "persist-key", "persist-tun",
+        "script-security",
+        "up",
+        "down",
+        "up-restart",
+        "down-pre",
+        "client-connect",
+        "client-disconnect",
+        "learn-address",
+        "auth-user-pass-verify",
+        "tls-verify",
+        "tls-export-cert",
+        "plugin",
+        "iproute",
+        "route-up",
+        "ipchange",
+        "setenv",
+        "setenv-safe",
+        "cd",
+        "chroot",
+        "user",
+        "group",
+        "persist-key",
+        "persist-tun",
     ];
 
     for (line_num, raw_line) in content.lines().enumerate() {
@@ -689,18 +723,15 @@ fn validate_ovpn_file(path: &Path) -> Result<(), String> {
             continue;
         }
 
-        let directive = line
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_lowercase();
+        let directive = line.split_whitespace().next().unwrap_or("").to_lowercase();
 
         if FORBIDDEN_DIRECTIVES.contains(&directive.as_str()) {
             return Err(format!(
                 "El archivo .ovpn contiene la directiva peligrosa '{}' en la línea {}. \
                 Por seguridad, LESSSO C2 no permite directivas que ejecuten comandos, \
                 carguen plugins o cambien de usuario. Elimina esa línea y vuelve a intentarlo.",
-                directive, line_num + 1
+                directive,
+                line_num + 1
             ));
         }
     }
@@ -724,8 +755,10 @@ async fn connect_vpn(ovpn_path: String) -> Result<(), String> {
 
     let output = Command::new("pkexec")
         .arg(openvpn_exe)
-        .arg("--config").arg(&ovpn_path)
-        .arg("--script-security").arg("0")
+        .arg("--config")
+        .arg(&ovpn_path)
+        .arg("--script-security")
+        .arg("0")
         .arg("--daemon")
         .output()
         .map_err(|e| format!("DEPENDENCY_MISSING: {}", e))?;
@@ -779,8 +812,10 @@ fn strip_output_flags(args: Vec<String>) -> Vec<String> {
             skip_next = true;
             continue;
         }
-        if arg.starts_with("-o") && arg.len() > 2 &&
-           matches!(&arg[0..3], "-oN" | "-oG" | "-oX" | "-oA" | "-oS") {
+        if arg.starts_with("-o")
+            && arg.len() > 2
+            && matches!(&arg[0..3], "-oN" | "-oG" | "-oX" | "-oA" | "-oS")
+        {
             continue;
         }
         result.push(arg);
@@ -791,12 +826,25 @@ fn strip_output_flags(args: Vec<String>) -> Vec<String> {
 
 fn nmap_needs_root(args: &[String]) -> bool {
     for arg in args {
-        if matches!(arg.as_str(),
-            "-sS" | "-sU" | "-sY" | "-sI" | "-sA" | "-sW" | "-sM" |
-            "-O" | "--osscan-guess" |
-            "-f" | "--mtu" | "-D" | "--spoof-mac" |
-            "-S" | "-g" | "--badsum" |
-            "--scanflags"
+        if matches!(
+            arg.as_str(),
+            "-sS"
+                | "-sU"
+                | "-sY"
+                | "-sI"
+                | "-sA"
+                | "-sW"
+                | "-sM"
+                | "-O"
+                | "--osscan-guess"
+                | "-f"
+                | "--mtu"
+                | "-D"
+                | "--spoof-mac"
+                | "-S"
+                | "-g"
+                | "--badsum"
+                | "--scanflags"
         ) {
             return true;
         }
@@ -806,8 +854,10 @@ fn nmap_needs_root(args: &[String]) -> bool {
                 return true;
             }
         }
-        if arg.starts_with("--mtu") || arg.starts_with("--spoof-mac") ||
-           arg.starts_with("--scanflags") {
+        if arg.starts_with("--mtu")
+            || arg.starts_with("--spoof-mac")
+            || arg.starts_with("--scanflags")
+        {
             return true;
         }
     }
@@ -853,7 +903,6 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
         return Err("XML no generado.".into());
     }
 
-
     let xml_text = std::fs::read_to_string(xml_path).map_err(|e| e.to_string())?;
 
     // ------------------------------------------------------------------
@@ -882,11 +931,9 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
                         depth -= 1;
                     }
                 }
-                '>' => {
-                    if depth == 0 {
-                        end_pos = Some(start + i);
-                        break;
-                    }
+                '>' if depth == 0 => {
+                    end_pos = Some(start + i);
+                    break;
                 }
                 _ => {}
             }
@@ -897,9 +944,7 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
         }
     }
 
-
-    let doc = Document::parse(&safe_xml)
-        .map_err(|e| format!("Error de parseo XML: {}", e))?;
+    let doc = Document::parse(&safe_xml).map_err(|e| format!("Error de parseo XML: {}", e))?;
 
     let root = doc.root_element();
 
@@ -917,12 +962,12 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
     };
 
     // <runstats><finished ... />
-    if let Some(runstats) = root.descendants().find(|n| n.has_tag_name("runstats")) {
-        if let Some(finished) = runstats.descendants().find(|n| n.has_tag_name("finished")) {
-            scan_result.end_time = finished.attribute("time").unwrap_or("").to_string();
-            scan_result.end_time_str = finished.attribute("timestr").unwrap_or("").to_string();
-            scan_result.elapsed = finished.attribute("elapsed").unwrap_or("").to_string();
-        }
+    if let Some(runstats) = root.descendants().find(|n| n.has_tag_name("runstats"))
+        && let Some(finished) = runstats.descendants().find(|n| n.has_tag_name("finished"))
+    {
+        scan_result.end_time = finished.attribute("time").unwrap_or("").to_string();
+        scan_result.end_time_str = finished.attribute("timestr").unwrap_or("").to_string();
+        scan_result.elapsed = finished.attribute("elapsed").unwrap_or("").to_string();
     }
 
     let mut host_map: HashMap<String, HostInfo> = HashMap::new();
@@ -933,7 +978,10 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
         let mut mac = String::new();
         let mut mac_vendor = String::new();
 
-        for addr in host_node.descendants().filter(|n| n.has_tag_name("address")) {
+        for addr in host_node
+            .descendants()
+            .filter(|n| n.has_tag_name("address"))
+        {
             let addrtype = addr.attribute("addrtype").unwrap_or("");
             let addr_val = addr.attribute("addr").unwrap_or("").to_string();
             if addrtype == "ipv4" || addrtype == "ipv6" {
@@ -952,8 +1000,14 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
 
         // ---- Hostnames ----
         let mut hostnames = Vec::new();
-        if let Some(hns_node) = host_node.descendants().find(|n| n.has_tag_name("hostnames")) {
-            for hn_node in hns_node.descendants().filter(|n| n.has_tag_name("hostname")) {
+        if let Some(hns_node) = host_node
+            .descendants()
+            .find(|n| n.has_tag_name("hostnames"))
+        {
+            for hn_node in hns_node
+                .descendants()
+                .filter(|n| n.has_tag_name("hostname"))
+            {
                 if let Some(name) = hn_node.attribute("name") {
                     hostnames.push(name.to_string());
                 }
@@ -1046,60 +1100,60 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
             let mut servicefp = String::new();
 
             if let Some(svc_node) = port_node.descendants().find(|n| n.has_tag_name("service")) {
-    service = svc_node.attribute("name").unwrap_or("").to_string();
-    product = svc_node.attribute("product").unwrap_or("").to_string();
-    let ver = svc_node.attribute("version").unwrap_or("").to_string();
-    extrainfo = svc_node.attribute("extrainfo").unwrap_or("").to_string();
-    ostype = svc_node.attribute("ostype").unwrap_or("").to_string();
-    devicetype = svc_node.attribute("devicetype").unwrap_or("").to_string();
-    tunnel = svc_node.attribute("tunnel").unwrap_or("").to_string();
-    servicefp = svc_node.attribute("servicefp").unwrap_or("").to_string();
+                service = svc_node.attribute("name").unwrap_or("").to_string();
+                product = svc_node.attribute("product").unwrap_or("").to_string();
+                let ver = svc_node.attribute("version").unwrap_or("").to_string();
+                extrainfo = svc_node.attribute("extrainfo").unwrap_or("").to_string();
+                ostype = svc_node.attribute("ostype").unwrap_or("").to_string();
+                devicetype = svc_node.attribute("devicetype").unwrap_or("").to_string();
+                tunnel = svc_node.attribute("tunnel").unwrap_or("").to_string();
+                servicefp = svc_node.attribute("servicefp").unwrap_or("").to_string();
 
-    version = format!("{} {}", product, ver).trim().to_string();
+                version = format!("{} {}", product, ver).trim().to_string();
 
-    // ------------------------------------------------------------------
-    // CPEs — recolección robusta
-    //
-    // Estrategia triple (en orden, con deduplicación):
-    //   1. Hijos directos <cpe> del <service> (lo habitual en Nmap).
-    //   2. Cualquier descendiente <cpe> (por si Nmap los anida raro).
-    //   3. Atributo `cpe` del <service> (algunas builds de Nmap lo ponen).
-    //
-    // Cada CPE se normaliza: trim, sin entidades HTML residuales.
-    // ------------------------------------------------------------------
-    let mut seen_cpes: std::collections::HashSet<String> = std::collections::HashSet::new();
+                // ------------------------------------------------------------------
+                // CPEs — recolección robusta
+                //
+                // Estrategia triple (en orden, con deduplicación):
+                //   1. Hijos directos <cpe> del <service> (lo habitual en Nmap).
+                //   2. Cualquier descendiente <cpe> (por si Nmap los anida raro).
+                //   3. Atributo `cpe` del <service> (algunas builds de Nmap lo ponen).
+                //
+                // Cada CPE se normaliza: trim, sin entidades HTML residuales.
+                // ------------------------------------------------------------------
+                let mut seen_cpes: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
 
-    // 1) Hijos directos
-    for child in svc_node.children() {
-        if child.has_tag_name("cpe") {
-            if let Some(text) = child.text() {
-                let t = text.trim().to_string();
-                if !t.is_empty() && seen_cpes.insert(t.clone()) {
-                    cpe.push(t);
+                // 1) Hijos directos
+                for child in svc_node.children() {
+                    if child.has_tag_name("cpe")
+                        && let Some(text) = child.text()
+                    {
+                        let t = text.trim().to_string();
+                        if !t.is_empty() && seen_cpes.insert(t.clone()) {
+                            cpe.push(t);
+                        }
+                    }
+                }
+
+                // 2) Descendientes (por si están anidados)
+                for cpe_node in svc_node.descendants().filter(|n| n.has_tag_name("cpe")) {
+                    if let Some(text) = cpe_node.text() {
+                        let t = text.trim().to_string();
+                        if !t.is_empty() && seen_cpes.insert(t.clone()) {
+                            cpe.push(t);
+                        }
+                    }
+                }
+
+                // 3) Atributo `cpe` (fallback)
+                if let Some(attr_cpe) = svc_node.attribute("cpe") {
+                    let t = attr_cpe.trim().to_string();
+                    if !t.is_empty() && seen_cpes.insert(t.clone()) {
+                        cpe.push(t);
+                    }
                 }
             }
-        }
-    }
-
-    // 2) Descendientes (por si están anidados)
-    for cpe_node in svc_node.descendants().filter(|n| n.has_tag_name("cpe")) {
-        if let Some(text) = cpe_node.text() {
-            let t = text.trim().to_string();
-            if !t.is_empty() && seen_cpes.insert(t.clone()) {
-                cpe.push(t);
-            }
-        }
-    }
-
-    // 3) Atributo `cpe` (fallback)
-    if let Some(attr_cpe) = svc_node.attribute("cpe") {
-        let t = attr_cpe.trim().to_string();
-        if !t.is_empty() && seen_cpes.insert(t.clone()) {
-            cpe.push(t);
-        }
-    }
-}
-
 
             let mut scripts = Vec::new();
             for script_node in port_node.descendants().filter(|n| n.has_tag_name("script")) {
@@ -1128,14 +1182,20 @@ fn parse_nmap_xml(xml_path: &str) -> Result<String, String> {
 
         // ---- ExtraPorts ----
         let mut extraports: Vec<ExtraPorts> = Vec::new();
-        for ep_node in host_node.descendants().filter(|n| n.has_tag_name("extraports")) {
+        for ep_node in host_node
+            .descendants()
+            .filter(|n| n.has_tag_name("extraports"))
+        {
             let ep_state = ep_node.attribute("state").unwrap_or("").to_string();
             let ep_count: u32 = ep_node
                 .attribute("count")
                 .and_then(|s| s.parse::<u32>().ok())
                 .unwrap_or(0);
             let mut reasons: Vec<String> = Vec::new();
-            for er in ep_node.descendants().filter(|n| n.has_tag_name("extrareasons")) {
+            for er in ep_node
+                .descendants()
+                .filter(|n| n.has_tag_name("extrareasons"))
+            {
                 if let Some(r) = er.attribute("reason") {
                     reasons.push(r.to_string());
                 }
@@ -1298,24 +1358,30 @@ async fn run_rustscan(
     let mut cmd = {
         let mut c = Command::new("pkexec");
         c.arg("rustscan");
-        c.arg("-a").arg(&target)
-            .arg("-b").arg("4500")
+        c.arg("-a")
+            .arg(&target)
+            .arg("-b")
+            .arg("4500")
             .arg("--accessible")
             .arg("--")
             .args(&clean_args)
-            .arg("-oX").arg(xml_path_str);
+            .arg("-oX")
+            .arg(xml_path_str);
         c
     };
 
     #[cfg(not(target_os = "linux"))]
     let mut cmd = {
         let mut c = Command::new("rustscan");
-        c.arg("-a").arg(&target)
-            .arg("-b").arg("4500")
+        c.arg("-a")
+            .arg(&target)
+            .arg("-b")
+            .arg("4500")
             .arg("--accessible")
             .arg("--")
             .args(&clean_args)
-            .arg("-oX").arg(xml_path_str);
+            .arg("-oX")
+            .arg(xml_path_str);
         c
     };
 
@@ -1470,12 +1536,12 @@ async fn write_terminal(
     data: String,
 ) -> Result<(), String> {
     let mut children = state.children.lock().unwrap();
-    if let Some(child) = children.get_mut(&session_id) {
-        if let Some(stdin) = child.stdin.as_mut() {
-            let _ = stdin.write_all(data.as_bytes());
-            let _ = stdin.flush();
-            return Ok(());
-        }
+    if let Some(child) = children.get_mut(&session_id)
+        && let Some(stdin) = child.stdin.as_mut()
+    {
+        let _ = stdin.write_all(data.as_bytes());
+        let _ = stdin.flush();
+        return Ok(());
     }
     Err("Sesión no encontrada o stdin cerrado".into())
 }
@@ -1489,7 +1555,8 @@ async fn send_terminal_signal(
 ) -> Result<(), String> {
     let pid = {
         let pids = state.pids.lock().unwrap();
-        *pids.get(&session_id)
+        *pids
+            .get(&session_id)
             .ok_or_else(|| format!("Sesión '{}' no encontrada", session_id))?
     };
 
@@ -1517,10 +1584,7 @@ async fn send_terminal_signal(
 
 /// Cierra una sesión matando el process group completo.
 #[tauri::command]
-async fn kill_terminal(
-    state: State<'_, TerminalState>,
-    session_id: String,
-) -> Result<(), String> {
+async fn kill_terminal(state: State<'_, TerminalState>, session_id: String) -> Result<(), String> {
     let pid_opt = {
         let mut pids = state.pids.lock().unwrap();
         pids.remove(&session_id)
@@ -1684,17 +1748,16 @@ fn kill_sweep(app: &AppHandle) {
 // ==========================================================
 
 #[tauri::command]
-async fn run_fuzzer(
-    app: AppHandle,
-    target_url: String,
-    wordlist: String,
-) -> Result<(), String> {
+async fn run_fuzzer(app: AppHandle, target_url: String, wordlist: String) -> Result<(), String> {
     let mut cmd = Command::new("gobuster");
     cmd.args([
         "dir",
-        "-u", &target_url,
-        "-w", &wordlist,
-        "-t", "50",
+        "-u",
+        &target_url,
+        "-w",
+        &wordlist,
+        "-t",
+        "50",
         "-q",
         "--no-error",
         "--no-color",
@@ -1714,7 +1777,7 @@ async fn run_fuzzer(
     if let Some(stdout) = child.stdout.take() {
         std::thread::spawn(move || {
             let reader = BufReader::new(stdout);
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 let _ = app_out.emit("fuzzer-output", line);
             }
             let _ = app_out.emit("fuzzer-finished", ());
@@ -1725,7 +1788,7 @@ async fn run_fuzzer(
         let app_err = app.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() {
+            for line in reader.lines().map_while(Result::ok) {
                 let _ = app_err.emit("fuzzer-output", line);
             }
         });
@@ -1829,7 +1892,10 @@ mod tests {
             "80".to_string(),
         ];
         let cleaned = strip_output_flags(args);
-        assert_eq!(cleaned, vec!["-sS".to_string(), "-p".to_string(), "80".to_string()]);
+        assert_eq!(
+            cleaned,
+            vec!["-sS".to_string(), "-p".to_string(), "80".to_string()]
+        );
     }
 
     #[test]
@@ -1965,9 +2031,7 @@ mod tests {
 
     #[test]
     fn ovpn_valid_minimal() {
-        let path = write_tmp_file(
-            "client\nremote 1.2.3.4 1194\nproto udp\ndev tun\n",
-        );
+        let path = write_tmp_file("client\nremote 1.2.3.4 1194\nproto udp\ndev tun\n");
         let result = validate_ovpn_file(&path);
         let _ = fs::remove_file(&path);
         assert!(result.is_ok(), "archivo válido rechazado: {:?}", result);
@@ -2058,11 +2122,7 @@ mod tests {
 
     #[tokio::test]
     async fn vault_corrupt_base64_rejected() {
-        let result = decrypt_vault(
-            "not-valid-base64!!!".to_string(),
-            "password".to_string(),
-        )
-        .await;
+        let result = decrypt_vault("not-valid-base64!!!".to_string(), "password".to_string()).await;
         assert!(result.is_err());
     }
 
@@ -2180,7 +2240,11 @@ mod tests {
 "#;
         let path = write_tmp_xml(xml);
         let result = parse_nmap_xml(&path);
-        assert!(result.is_ok(), "DOCTYPE debió ser neutralizado: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "DOCTYPE debió ser neutralizado: {:?}",
+            result
+        );
 
         let v: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
         let hosts = v["hosts"].as_array().unwrap();

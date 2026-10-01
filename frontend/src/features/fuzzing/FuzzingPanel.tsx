@@ -57,7 +57,7 @@ export function FuzzingPanel() {
     try {
       const filePath = await save({ defaultPath: `fuzzing_report.txt`, filters: [{ name: 'Text', extensions: ['txt'] }] });
       if (filePath) { await writeTextFile(filePath, lines.join('\n')); alert('Exportado correctamente.'); }
-    } catch (err) {}
+    } catch {}
   };
 
   const renderTree = (node: TreeNode, isRoot: boolean = false) => {

@@ -57,17 +57,21 @@ async function request<T>(
   }
 
   try {
-    const res = await fetch(url, {
+    const fetchInit: RequestInit = {
       method,
       signal: ctrl.signal,
       headers: {
         Accept: 'application/json',
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...(options.headers || {}),
+        ...options.headers,
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    })
+    }
+    // `body` solo es válido en métodos con payload (no GET/HEAD).
+    if (body !== undefined && method !== 'GET') {
+      fetchInit.body = JSON.stringify(body)
+    }
 
+    const res = await fetch(url, fetchInit)
     const text = await res.text()
     const data = text ? safeJson(text) : undefined
 
