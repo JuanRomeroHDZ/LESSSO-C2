@@ -227,4 +227,3 @@ No abras PRs que toquen el tag o el workflow de release sin discusión previa.
 ---
 
 **Gracias por contribuir a LESSSO C2.** 🔰
-```
