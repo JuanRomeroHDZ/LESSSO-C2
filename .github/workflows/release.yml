@@ -1,4 +1,4 @@
-name: Release LESSSO C2
+wname: Release LESSSO C2
 
 on:
   push:
@@ -85,7 +85,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: ./frontend
-        run: npm ci --legacy-peers-dep
+        run: npm ci --legacy-peer-deps
 
       - name: Build and release Tauri app
         uses: tauri-apps/tauri-action@v0
