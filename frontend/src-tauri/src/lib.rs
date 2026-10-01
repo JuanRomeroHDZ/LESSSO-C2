@@ -24,7 +24,10 @@
 //   8.  Fuzzer (gobuster)
 //   9.  Entry point
 // ==========================================================
-#[cfg(unix)]
+
+// ==========================================================
+// LESSSO C2 — Backend Tauri (v5, arquitectura por process group)
+// ==========================================================
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -32,7 +35,6 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, Ordering};
 
-use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::{
