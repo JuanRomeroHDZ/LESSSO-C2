@@ -389,9 +389,10 @@ export const useScanStoreLocal = create<ScanState>()(
           set({ isScanning: false, progressText: '' });
           get().appendOutput('\n[WARN] DETENIDO POR EL USUARIO.');
         } catch {
-          console.error(e);
+		// silencioso si el navegador bloquea el audio no se rompe la app
         }
       },
+
 
       playAudioAlert: () => {
         const { soundEnabled, volume } = useUiStore.getState();
@@ -408,10 +409,13 @@ export const useScanStoreLocal = create<ScanState>()(
           gain.gain.setValueAtTime(volume / 100, ctx.currentTime);
           osc.start();
           osc.stop(ctx.currentTime + 0.3);
-        } catch {
-          /* noop */
+        } catch (e) {
+          // Silencioso: si el navegador bloquea el audio, no rompemos la app.
+          void e;
         }
       },
+
+
 
       notifyCompletion: async () => {
         get().playAudioAlert();
