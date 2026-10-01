@@ -24,14 +24,16 @@
 //   8.  Fuzzer (gobuster)
 //   9.  Entry point
 // ==========================================================
-
+#[cfg(unix)]
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::{
     Aes256Gcm, Nonce,
@@ -1560,11 +1562,26 @@ async fn send_terminal_signal(
             .ok_or_else(|| format!("Sesión '{}' no encontrada", session_id))?
     };
 
+    // En Windows, libc solo expone SIGINT/SIGTERM/SIGILL/SIGABRT/etc.
+    // SIGTSTP y SIGKILL son POSIX. Para que compile en las 3 plataformas,
+    // devolvemos un error claro en Windows cuando se pide una señal que
+    // ese SO no soporta. En la práctica, en Windows matamos con
+    // `kill_terminal` (TaskKill), no con señales.
     let signal = match signal_name.as_str() {
         "SIGINT" => libc::SIGINT,
+        #[cfg(unix)]
         "SIGTSTP" => libc::SIGTSTP,
+        #[cfg(not(unix))]
+        "SIGTSTP" => {
+            return Err("SIGTSTP no está disponible en Windows. Usa cerrar sesión.".to_string());
+        }
         "SIGTERM" => libc::SIGTERM,
+        #[cfg(unix)]
         "SIGKILL" => libc::SIGKILL,
+        #[cfg(not(unix))]
+        "SIGKILL" => {
+            return Err("SIGKILL no está disponible en Windows. Usa cerrar sesión.".to_string());
+        }
         other => return Err(format!("Señal '{}' no soportada", other)),
     };
 
