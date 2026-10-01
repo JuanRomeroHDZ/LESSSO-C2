@@ -23,6 +23,7 @@
     "@xterm/xterm": "^6.0.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-is": "^19.2.0",
     "react-markdown": "^10.1.0",
     "reactflow": "^11.11.4",
     "recharts": "^3.10.1",
@@ -33,7 +34,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.4.2",
-    "@testing-library/react": "^14.2.1",
+    "@testing-library/react": "^16.1.0",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
