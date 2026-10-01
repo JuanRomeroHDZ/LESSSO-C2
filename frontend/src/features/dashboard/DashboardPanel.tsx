@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useScanStore } from '../../core/store/useScanStore'
 import { useUiStore } from '../../core/store/uiStore'
 
@@ -27,6 +27,8 @@ export function DashboardPanel() {
 
   const cveAutoEnrich = useUiStore((s) => s.cveAutoEnrich)
   const toggleCveAutoEnrich = useUiStore((s) => s.toggleCveAutoEnrich)
+  const includeCvss = useUiStore((s) => s.includeCvss)
+  const signature = useUiStore((s) => s.signature)
 
   const [showDiff, setShowDiff] = useState(false)
   const [previewModal, setPreviewModal] = useState<'md' | 'html' | 'json' | null>(null)
@@ -50,20 +52,78 @@ export function DashboardPanel() {
     false,
     expansion.setExpandedHosts,
     expansion.setExpandedPorts,
+    includeCvss,
+    signature,
   )
 
-  // Imprimir: expandimos todo y esperamos 2 frames para que React
-  // haya pintado antes de abrir el diálogo de impresión.
+  // ==========================================================
+  // HASH DE INTEGRIDAD (async)
+  // ==========================================================
+  const [integrityHash, setIntegrityHash] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!previewModal) {
+      setIntegrityHash(null)
+      return
+    }
+    reportGenerator
+      .computeIntegrityHash()
+      .then((h) => {
+        if (!cancelled) setIntegrityHash(h)
+      })
+      .catch(() => {
+        if (!cancelled) setIntegrityHash(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [previewModal, reportGenerator])
+
+  // ==========================================================
+  // CONTENIDO MEMOIZADO
+  // ----------------------------------------------------------
+  // CRÍTICO: sin esto, generateMarkdown()/generateHTML() corren
+  // en cada render del panel (hover, búsqueda, scroll) → el iframe
+  // se remonta → el scroll del preview se resetea.
+  //
+  // Solo recalculamos cuando el modal está abierto Y cambia algo
+  // relevante: filteredData, includeCvss, signature, hash.
+  // ==========================================================
+  const mdContent = useMemo(() => {
+    if (previewModal !== 'md') return ''
+    return reportGenerator.generateMarkdown(integrityHash ?? undefined)
+  }, [previewModal, reportGenerator, integrityHash])
+
+  const htmlContent = useMemo(() => {
+    if (previewModal !== 'html') return ''
+    return reportGenerator.generateHTML(integrityHash ?? undefined)
+  }, [previewModal, reportGenerator, integrityHash])
+
+  const jsonContent = useMemo(() => {
+    if (previewModal !== 'json') return ''
+    const payload = reportGenerator.buildJsonPayload()
+    const payloadWithHash = integrityHash
+      ? { ...payload, hash: integrityHash }
+      : payload
+    return JSON.stringify(payloadWithHash, null, 2)
+  }, [previewModal, reportGenerator, integrityHash])
+
+  // ==========================================================
+  // PRINT
+  // ==========================================================
   const handleOpenPrint = useCallback(() => {
     expansion.expandAllWithScripts(filters.filteredData)
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        reportGenerator.handlePrint()
+        void reportGenerator.handlePrint()
       })
     })
   }, [expansion, filters.filteredData, reportGenerator])
 
-  // Estados de carga / vacío
+  // ==========================================================
+  // ESTADOS DE CARGA / VACÍO
+  // ==========================================================
   if (isScanning && (!parsedData || parsedData.length === 0)) return <LoadingState />
   if (!parsedData || parsedData.length === 0) {
     return <EmptyState handleImport={reportGenerator.handleImport} />
@@ -81,6 +141,9 @@ export function DashboardPanel() {
     (acc, h) => acc + (h.ports?.filter((p) => p.cves?.length).length ?? 0),
     0,
   )
+
+  // Fecha UTC para el header de impresión
+  const nowUtcIso = new Date().toISOString()
 
   return (
     <section className="flex flex-col h-full min-h-0 space-y-4 relative print:space-y-0 print:block">
@@ -175,7 +238,7 @@ export function DashboardPanel() {
             LESSSO C2 Report
           </h1>
           <p className="text-sm font-bold text-slate-500 mt-2">
-            Objetivo: {target} | Fecha: {new Date().toLocaleString()}
+            Objetivo: {target} | Fecha (UTC): {nowUtcIso}
           </p>
         </div>
 
@@ -209,8 +272,10 @@ export function DashboardPanel() {
           onClose={() => setPreviewModal(null)}
           onSave={reportGenerator.handleSaveFile}
           filteredData={filters.filteredData}
-          mdContent={reportGenerator.generateMarkdown()}
-          htmlContent={reportGenerator.generateHTML()}
+          mdContent={mdContent}
+          htmlContent={htmlContent}
+          integrityHash={integrityHash}
+          jsonContent={jsonContent}
         />
       )}
     </section>

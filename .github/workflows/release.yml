@@ -1,82 +1,117 @@
 name: Release LESSSO C2
 
-# Este workflow se activará cada vez que hagas push a la rama 'main'
-# (Puedes cambiarlo para que se active solo cuando crees un "tag" de versión)
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Crear como draft'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: write
 
 jobs:
   release:
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
-        # Aquí definimos los 3 sistemas operativos que GitHub nos prestará
         include:
-          - platform: 'macos-latest' 
-            args: '--target aarch64-apple-darwin' # Para Macs modernas (M1/M2/M3)
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin' # Para Macs Intel
           - platform: 'ubuntu-22.04'
-            args: ''
+            args: '--target x86_64-unknown-linux-gnu'
+            label: 'linux-x64'
           - platform: 'windows-latest'
-            args: ''
+            args: '--target x86_64-pc-windows-msvc'
+            label: 'windows-x64'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+            label: 'macos-x64'
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+            label: 'macos-arm64'
 
     runs-on: ${{ matrix.platform }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Instalar Node.js
-      - name: Setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            build-essential \
+            curl \
+            wget \
+            file
 
-      # Instalar Rust
-      - name: Install Rust stable
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # Para que compile bien en Mac M1 si el servidor es Intel
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # Caché de Rust para que compile más rápido las siguientes veces
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './frontend/src-tauri -> target'
+          key: ${{ matrix.label }}
 
-      # Dependencias necesarias para compilar en Linux (Ubuntu)
-      - name: Install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: './frontend/package-lock.json'
 
-      # Dependencia necesaria para compilar el instalador en Windows
-      - name: Install dependencies (windows only)
-        if: matrix.platform == 'windows-latest'
-        run: |
-          choco install nsis -y
-
-      # Instalar dependencias de React
       - name: Install frontend dependencies
         working-directory: ./frontend
-        run: npm install
+        run: npm ci
 
-      # Construir la app y crear el Release en GitHub
-      - name: Build Tauri app
+      - name: Build and release Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          projectPath: './frontend' # Le decimos que nuestro proyecto está en esta carpeta
-          tagName: app-v__VERSION__ # Toma la versión de tu tauri.conf.json
-          releaseName: 'LESSSO C2 v__VERSION__'
-          releaseBody: 'Nueva versión de LESSSO C2 lista para descargar.'
-          releaseDraft: true # Lo crea como "Borrador" para que lo revises antes de publicarlo
+          projectPath: './frontend'
+          tagName: ${{ github.ref_name }}
+          releaseName: 'LESSSO C2 ${{ github.ref_name }}'
+          releaseBody: |
+            Release automatico de LESSSO C2.
+
+            Artefactos:
+            - Linux: .deb, .rpm, .AppImage
+            - Windows: .msi, .exe
+            - macOS: .dmg (Intel + Apple Silicon)
+
+            Instalacion Linux:
+              sudo dpkg -i lessso-c2_*_amd64.deb
+              sudo apt-get install -f
+
+            Instalacion macOS:
+              Abrir el .dmg y arrastrar a Aplicaciones.
+              Si macOS bloquea: clic derecho -> Abrir.
+
+            Dependencias: nmap, openvpn, pkexec, wl-clipboard
+          releaseDraft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft == 'true' || false }}
           prerelease: false
           args: ${{ matrix.args }}

@@ -13,15 +13,18 @@
     "windows": [
       {
         "title": "LESSSO C2 - Red Team Workspace",
-        "width": 1024,
-        "height": 768,
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true
       }
     ],
     "security": {
-      "csp": "default-src 'self' asset: http://asset.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:8001; worker-src 'self' blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'",
-      "devCsp": "default-src 'self' asset: http://asset.localhost; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:8001 http://localhost:5173 ws://localhost:5173; worker-src 'self' blob:; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'",
+      "csp": "default-src 'self' asset: http://asset.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:8001; worker-src 'self' blob:; object-src 'none'; frame-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'",
+      "devCsp": "default-src 'self' asset: http://asset.localhost; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:8001 http://localhost:5173 ws://localhost:5173; worker-src 'self' blob:; object-src 'none'; frame-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'",
       "assetProtocol": {
         "enable": true,
         "scope": [
@@ -36,12 +39,19 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "LESSSO C2 - Red Team Workspace",
+    "longDescription": "LESSSO C2 es un workspace ofensivo que integra reconocimiento con Nmap, enriquecimiento de CVEs via NVD API v2, gestion de credenciales, notas de auditoria y generacion de reportes tecnicos (MD/HTML/JSON) con hash de integridad SHA-256.",
+    "copyright": "Juan Romero. Todos los derechos reservados.",
+    "publisher": "Juan Romero",
+    "homepage": "https://github.com/juanromero/LESSSO-C2",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/icon.ico",
+      "icons/icon.png"
     ],
     "linux": {
       "deb": {
@@ -50,8 +60,40 @@
           "openvpn",
           "pkexec",
           "wl-clipboard"
-        ]
+        ],
+        "section": "utils",
+        "priority": "optional"
+      },
+      "rpm": {
+        "depends": [
+          "nmap",
+          "openvpn",
+          "polkit",
+          "wl-clipboard"
+        ],
+        "epoch": 0,
+        "release": "1"
+      },
+      "appimage": {
+        "bundleMediaFramework": false
       }
+    },
+    "windows": {
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "wix": {
+        "language": ["en-US", "es-ES"]
+      },
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": ["English", "Spanish"]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": null,
+      "entitlements": null,
+      "providerShortName": null
     },
     "android": {
       "debugApplicationIdSuffix": ".debug"

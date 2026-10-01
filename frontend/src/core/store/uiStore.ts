@@ -1,6 +1,27 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+// ==========================================================
+// LESSSO C2 — Firmas del reporte
+// ----------------------------------------------------------
+// Se imprimen al final del reporte MD/HTML. Todos los campos son
+// opcionales: si `name` está vacío, la sección no se renderiza.
+// ==========================================================
+export interface ReportSignature {
+  name: string
+  role: string
+  company: string
+  /** ISO 8601 UTC. Se autogenera al firmar, editable. */
+  date: string
+}
+
+export const EMPTY_SIGNATURE: ReportSignature = {
+  name: '',
+  role: '',
+  company: '',
+  date: '',
+}
+
 export interface UiState {
   theme: 'light' | 'dark';
   compactMode: boolean;
@@ -16,10 +37,21 @@ export interface UiState {
    * (`POST /api/cves/match`) para enriquecer cada puerto abierto
    * con CVEs reales de NVD. Si el backend falla, se cae al
    * matching heurístico local (`detectCVEs`).
-   *
-   * Desactivar en escaneos muy grandes o si no hay red.
    */
   cveAutoEnrich: boolean;
+
+  /**
+   * Si está activo, el reporte exportable (MD/HTML) incluye la
+   * columna CVSS en las tablas de vulnerabilidades. Si no, se
+   * omite (útil para reportes ejecutivos sin detalle técnico).
+   */
+  includeCvss: boolean;
+
+  /**
+   * Firma del auditor. Se imprime al final del reporte si
+   * `signature.name` no está vacío.
+   */
+  signature: ReportSignature;
 
   toggleTheme: () => void;
   toggleCompactMode: () => void;
@@ -32,6 +64,12 @@ export interface UiState {
 
   setCveAutoEnrich: (v: boolean) => void;
   toggleCveAutoEnrich: () => void;
+
+  setIncludeCvss: (v: boolean) => void;
+  toggleIncludeCvss: () => void;
+
+  setSignature: (patch: Partial<ReportSignature>) => void;
+  clearSignature: () => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -46,6 +84,8 @@ export const useUiStore = create<UiState>()(
       activeWorkspace: 'recon',
       quickNotesOpen: false,
       cveAutoEnrich: true,
+      includeCvss: true,
+      signature: { ...EMPTY_SIGNATURE },
 
       toggleTheme: () =>
         set((state) => {
@@ -64,6 +104,13 @@ export const useUiStore = create<UiState>()(
 
       setCveAutoEnrich: (v) => set({ cveAutoEnrich: v }),
       toggleCveAutoEnrich: () => set((s) => ({ cveAutoEnrich: !s.cveAutoEnrich })),
+
+      setIncludeCvss: (v) => set({ includeCvss: v }),
+      toggleIncludeCvss: () => set((s) => ({ includeCvss: !s.includeCvss })),
+
+      setSignature: (patch) =>
+        set((s) => ({ signature: { ...s.signature, ...patch } })),
+      clearSignature: () => set({ signature: { ...EMPTY_SIGNATURE } }),
     }),
     {
       name: 'lessso-c2-uiStore',
@@ -73,9 +120,9 @@ export const useUiStore = create<UiState>()(
         volume: state.volume,
         soundEnabled: state.soundEnabled,
         cveAutoEnrich: state.cveAutoEnrich,
+        includeCvss: state.includeCvss,
+        signature: state.signature,
       }),
-      // Al rehidratar, aplicamos el tema al <html> inmediatamente
-      // para evitar el flash de tema claro.
       onRehydrateStorage: () => (state) => {
         if (state?.theme === 'dark') {
           document.documentElement.classList.add('dark');
