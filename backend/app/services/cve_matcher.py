@@ -82,8 +82,7 @@ _VERSION_NOISE = re.compile(
     re.IGNORECASE,
 )
 
-_VERSION_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?(?:[a-zA-Z]\d*)?)")
-
+_VERSION_RE = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
 
 # ==========================================================
 # HELPERS DE NORMALIZACIÓN

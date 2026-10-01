@@ -15,6 +15,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Dev-deps opcionales (pytest, etc.).
+# Se instalan solo si se construye con:
+#   docker compose build --build-arg INSTALL_DEV=true
+ARG INSTALL_DEV=false
+COPY requirements-dev.txt .
+RUN if [ "$INSTALL_DEV" = "true" ]; then \
+        pip install --no-cache-dir -r requirements-dev.txt; \
+    fi
+
 COPY . .
 
 EXPOSE 8000

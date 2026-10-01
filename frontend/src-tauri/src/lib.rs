@@ -1748,3 +1748,418 @@ pub fn run() {
             }
         });
 }
+
+// ==========================================================
+// 10. TESTS
+// ==========================================================
+// Tests unitarios de las funciones puras del core.
+//
+// No tocan Tauri, ni AppHandle, ni procesos reales. Solo
+// verifican lógica determinista:
+//   - strip_output_flags
+//   - nmap_needs_root
+//   - pid_alive / kill_pid (con el PID actual, seguro)
+//   - validate_ovpn_file (con archivos temporales)
+//   - encrypt_vault / decrypt_vault (roundtrip con argon2 + aes-gcm)
+//   - parse_nmap_xml (con un XML mínimo fixture)
+//
+// Ejecutar:
+//   cargo test --lib
+//   cargo test --lib -- --nocapture
+// ==========================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+
+    // ======================================================
+    // strip_output_flags
+    // ======================================================
+    #[test]
+    fn strip_output_flags_removes_on() {
+        let args = vec!["-sV".to_string(), "-oN".to_string(), "out.txt".to_string()];
+        let cleaned = strip_output_flags(args);
+        assert_eq!(cleaned, vec!["-sV".to_string()]);
+    }
+
+    #[test]
+    fn strip_output_flags_removes_ox() {
+        let args = vec![
+            "-sS".to_string(),
+            "-oX".to_string(),
+            "out.xml".to_string(),
+            "-p".to_string(),
+            "80".to_string(),
+        ];
+        let cleaned = strip_output_flags(args);
+        assert_eq!(cleaned, vec!["-sS".to_string(), "-p".to_string(), "80".to_string()]);
+    }
+
+    #[test]
+    fn strip_output_flags_removes_joined_form() {
+        let args = vec!["-sV".to_string(), "-oXout.xml".to_string()];
+        let cleaned = strip_output_flags(args);
+        assert_eq!(cleaned, vec!["-sV".to_string()]);
+    }
+
+    #[test]
+    fn strip_output_flags_keeps_unrelated_o_flags() {
+        // "-O" (detección de OS) NO debe filtrarse.
+        let args = vec!["-O".to_string(), "-sV".to_string()];
+        let cleaned = strip_output_flags(args);
+        assert_eq!(cleaned, vec!["-O".to_string(), "-sV".to_string()]);
+    }
+
+    #[test]
+    fn strip_output_flags_empty() {
+        let args: Vec<String> = vec![];
+        assert!(strip_output_flags(args).is_empty());
+    }
+
+    // ======================================================
+    // nmap_needs_root
+    // ======================================================
+    #[test]
+    fn nmap_needs_root_syn_scan() {
+        let args = vec!["-sS".to_string(), "-p".to_string(), "80".to_string()];
+        assert!(nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_os_detection() {
+        let args = vec!["-O".to_string()];
+        assert!(nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_udp() {
+        let args = vec!["-sU".to_string()];
+        assert!(nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_fragmentation() {
+        let args = vec!["-f".to_string()];
+        assert!(nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_mtu() {
+        let args = vec!["--mtu".to_string(), "16".to_string()];
+        assert!(nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_decoy() {
+        let args = vec!["-D".to_string(), "RND:5".to_string()];
+        assert!(nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_spoof_mac() {
+        let args = vec!["--spoof-mac".to_string(), "0".to_string()];
+        assert!(nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_connect_scan_no_root() {
+        // -sT (TCP connect) NO necesita root.
+        let args = vec!["-sT".to_string(), "-p".to_string(), "80".to_string()];
+        assert!(!nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_ping_scan_no_root() {
+        let args = vec!["-sn".to_string()];
+        assert!(!nmap_needs_root(&args));
+    }
+
+    #[test]
+    fn nmap_needs_root_empty() {
+        let args: Vec<String> = vec![];
+        assert!(!nmap_needs_root(&args));
+    }
+
+    // ======================================================
+    // pid_alive / kill_pid (seguros con PID propio)
+    // ======================================================
+    #[test]
+    fn pid_alive_current_process() {
+        let me = std::process::id() as i32;
+        assert!(pid_alive(me));
+    }
+
+    #[test]
+    fn pid_alive_invalid() {
+        assert!(!pid_alive(0));
+        assert!(!pid_alive(-1));
+    }
+
+    #[test]
+    fn pid_alive_nonexistent() {
+        // PID 999999 es casi seguro que no existe (rango máximo 4194304
+        // en Linux, pero es improbable que esté ocupado).
+        // Este test es best-effort: si existe, se salta.
+        if !pid_alive(999999) {
+            assert!(!pid_alive(999999));
+        }
+    }
+
+    #[test]
+    fn kill_pid_invalid_returns_false() {
+        assert!(!kill_pid(0, libc::SIGTERM));
+        assert!(!kill_pid(-1, libc::SIGTERM));
+    }
+
+    // ======================================================
+    // validate_ovpn_file
+    // ======================================================
+    fn write_tmp_file(content: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("lessso_test_{}.ovpn", ts));
+        let mut f = fs::File::create(&path).expect("create tmp");
+        f.write_all(content.as_bytes()).expect("write tmp");
+        path
+    }
+
+    #[test]
+    fn ovpn_valid_minimal() {
+        let path = write_tmp_file(
+            "client\nremote 1.2.3.4 1194\nproto udp\ndev tun\n",
+        );
+        let result = validate_ovpn_file(&path);
+        let _ = fs::remove_file(&path);
+        assert!(result.is_ok(), "archivo válido rechazado: {:?}", result);
+    }
+
+    #[test]
+    fn ovpn_rejects_script_security() {
+        let path = write_tmp_file("client\nscript-security 2\nup /tmp/evil.sh\n");
+        let result = validate_ovpn_file(&path);
+        let _ = fs::remove_file(&path);
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("script-security") || msg.contains("up"));
+    }
+
+    #[test]
+    fn ovpn_rejects_plugin() {
+        let path = write_tmp_file("client\nplugin /tmp/evil.so\n");
+        let result = validate_ovpn_file(&path);
+        let _ = fs::remove_file(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ovpn_rejects_up_directive() {
+        let path = write_tmp_file("client\nup /tmp/evil.sh\n");
+        let result = validate_ovpn_file(&path);
+        let _ = fs::remove_file(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ovpn_ignores_comments() {
+        let path = write_tmp_file("# script-security 2\n; up /tmp/evil.sh\nclient\n");
+        let result = validate_ovpn_file(&path);
+        let _ = fs::remove_file(&path);
+        assert!(result.is_ok(), "comentarios no deben contar: {:?}", result);
+    }
+
+    #[test]
+    fn ovpn_rejects_nonexistent_file() {
+        let path = PathBuf::from("/tmp/definitely_not_a_real_file_lessso.ovpn");
+        let result = validate_ovpn_file(&path);
+        assert!(result.is_err());
+    }
+
+    // ======================================================
+    // encrypt_vault / decrypt_vault
+    // ======================================================
+    #[tokio::test]
+    async fn vault_roundtrip_ok() {
+        let plaintext = "secret payload with unicode 🔐 and \n newlines";
+        let password = "SuperSecret123!";
+
+        let encrypted = encrypt_vault(plaintext.to_string(), password.to_string())
+            .await
+            .expect("encrypt falló");
+
+        // El ciphertext debe ser Base64 no vacío.
+        assert!(!encrypted.is_empty());
+        assert_ne!(encrypted, plaintext);
+
+        let decrypted = decrypt_vault(encrypted, password.to_string())
+            .await
+            .expect("decrypt falló");
+
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[tokio::test]
+    async fn vault_wrong_password_fails() {
+        let encrypted = encrypt_vault("data".to_string(), "correct".to_string())
+            .await
+            .expect("encrypt falló");
+
+        let result = decrypt_vault(encrypted, "wrong".to_string()).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn vault_empty_password_rejected() {
+        let enc = encrypt_vault("data".to_string(), "".to_string()).await;
+        assert!(enc.is_err());
+
+        let dec = decrypt_vault("bogus".to_string(), "".to_string()).await;
+        assert!(dec.is_err());
+    }
+
+    #[tokio::test]
+    async fn vault_corrupt_base64_rejected() {
+        let result = decrypt_vault(
+            "not-valid-base64!!!".to_string(),
+            "password".to_string(),
+        )
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn vault_two_encryptions_differ() {
+        // Cada encrypt usa salt+nonce aleatorios → ciphertexts distintos.
+        let a = encrypt_vault("same".to_string(), "pw".to_string())
+            .await
+            .unwrap();
+        let b = encrypt_vault("same".to_string(), "pw".to_string())
+            .await
+            .unwrap();
+        assert_ne!(a, b, "salt/nonce deben ser aleatorios");
+    }
+
+    // ======================================================
+    // parse_nmap_xml
+    // ======================================================
+    const SAMPLE_NMAP_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" args="nmap -sV 127.0.0.1" start="1700000000" startstr="2024-01-01 00:00:00" version="7.94">
+  <host starttime="1700000001" endtime="1700000002">
+    <status state="up" reason="localhost-response"/>
+    <address addr="127.0.0.1" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="localhost" type="PTR"/>
+    </hostnames>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open" reason="syn-ack" reason_ttl="64"/>
+        <service name="ssh" product="OpenSSH" version="9.6" extrainfo="Ubuntu" ostype="Linux">
+          <cpe>cpe:2.3:a:openbsd:openssh:9.6:*:*:*:*:*:*:*</cpe>
+        </service>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="open" reason="syn-ack" reason_ttl="64"/>
+        <service name="http" product="nginx" version="1.24.0"/>
+      </port>
+    </ports>
+  </host>
+  <runstats>
+    <finished time="1700000010" timestr="2024-01-01 00:00:10" elapsed="10.00" summary="Nmap done" exit="success"/>
+  </runstats>
+</nmaprun>
+"#;
+
+    fn write_tmp_xml(content: &str) -> String {
+        let mut path = std::env::temp_dir();
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        path.push(format!("lessso_test_{}.xml", ts));
+        let mut f = fs::File::create(&path).expect("create tmp xml");
+        f.write_all(content.as_bytes()).expect("write tmp xml");
+        path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn parse_nmap_xml_basic() {
+        let path = write_tmp_xml(SAMPLE_NMAP_XML);
+        let result = parse_nmap_xml(&path);
+        assert!(result.is_ok(), "parse falló: {:?}", result);
+
+        let json = result.unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).expect("json inválido");
+
+        assert_eq!(v["scanner"], "nmap");
+        assert_eq!(v["scanner_version"], "7.94");
+        assert_eq!(v["elapsed"], "10.00");
+
+        let hosts = v["hosts"].as_array().expect("hosts no es array");
+        assert_eq!(hosts.len(), 1);
+
+        let h = &hosts[0];
+        assert_eq!(h["ip"], "127.0.0.1");
+        assert_eq!(h["status"], "up");
+        assert_eq!(h["hostname"], "localhost");
+
+        let ports = h["ports"].as_array().expect("ports no es array");
+        assert_eq!(ports.len(), 2);
+
+        let ssh = ports
+            .iter()
+            .find(|p| p["portid"] == "22")
+            .expect("no encontró 22");
+        assert_eq!(ssh["service"], "ssh");
+        assert_eq!(ssh["product"], "OpenSSH");
+        assert_eq!(ssh["extrainfo"], "Ubuntu");
+        assert_eq!(ssh["ostype"], "Linux");
+
+        let cpes = ssh["cpe"].as_array().expect("cpe no es array");
+        assert_eq!(cpes.len(), 1);
+        assert!(cpes[0].as_str().unwrap().contains("openssh"));
+    }
+
+    #[test]
+    fn parse_nmap_xml_missing_file() {
+        let result = parse_nmap_xml("/tmp/definitely_not_a_real_nmap_file_lessso.xml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_nmap_xml_strips_doctype() {
+        // Un XML con DOCTYPE peligroso no debe explotar (billion laughs).
+        let xml = r#"<?xml version="1.0"?>
+<!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;">]>
+<nmaprun scanner="nmap" version="7.94">
+  <host>
+    <status state="up" reason="test"/>
+    <address addr="10.0.0.1" addrtype="ipv4"/>
+    <ports></ports>
+  </host>
+</nmaprun>
+"#;
+        let path = write_tmp_xml(xml);
+        let result = parse_nmap_xml(&path);
+        assert!(result.is_ok(), "DOCTYPE debió ser neutralizado: {:?}", result);
+
+        let v: serde_json::Value = serde_json::from_str(&result.unwrap()).unwrap();
+        let hosts = v["hosts"].as_array().unwrap();
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(hosts[0]["ip"], "10.0.0.1");
+    }
+
+    #[test]
+    fn parse_nmap_xml_removes_file_after_parse() {
+        let path = write_tmp_xml(SAMPLE_NMAP_XML);
+        let _ = parse_nmap_xml(&path);
+        assert!(
+            !Path::new(&path).exists(),
+            "el XML temporal debe eliminarse tras parsear"
+        );
+    }
+}

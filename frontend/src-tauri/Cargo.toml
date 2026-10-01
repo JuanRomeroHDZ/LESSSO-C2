@@ -40,3 +40,6 @@ arboard = "3.4"
 
 # Procesamiento de imágenes (BMP → PNG real)
 image = { version = "0.25", default-features = false, features = ["png", "bmp"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

@@ -2,7 +2,13 @@
 Endpoints de CVEs.
 
 - POST /api/cves/match   → recibe items, devuelve CVEs.
+- GET  /api/cves/_status → diagnóstico del cache y del cliente NVD.
 - GET  /api/cves/{id}    → devuelve un CVE concreto (con cache).
+
+⚠ ORDEN IMPORTANTE:
+`/_status` debe declararse ANTES que `/{cve_id}`. FastAPI evalúa las
+rutas en orden de declaración, y si `/{cve_id}` va primero, captura
+`_status` como si fuera un ID (y devuelve 400 por formato inválido).
 
 Ambos son best-effort: si NVD falla y NVD_SOFT_FAIL=True, se
 devuelve 200 con listas vacías para no romper la UI.
@@ -61,7 +67,27 @@ class MatchResponse(BaseModel):
 
 
 # ==========================================================
-# ENDPOINTS
+# HEALTH / DIAGNÓSTICO
+# ----------------------------------------------------------
+# ⚠ DEBE IR ANTES que /{cve_id} (ver docstring del módulo).
+# ==========================================================
+@router.get("/_status")
+async def cve_status() -> dict[str, Any]:
+    """
+    Pequeño endpoint de diagnóstico para saber si el cache y el
+    matcher están operativos.
+    """
+    return {
+        "cache_enabled": cve_cache.enabled,
+        "nvd_key_configured": bool(settings.NVD_API_KEY),
+        "nvd_base_url": settings.NVD_BASE_URL,
+        "nvd_timeout_s": settings.NVD_TIMEOUT_S,
+        "soft_fail": settings.NVD_SOFT_FAIL,
+    }
+
+
+# ==========================================================
+# MATCH
 # ==========================================================
 @router.post("/match", response_model=MatchResponse)
 async def match_cves(payload: MatchRequest) -> MatchResponse:
@@ -86,6 +112,11 @@ async def match_cves(payload: MatchRequest) -> MatchResponse:
     return MatchResponse(results=[MatchResultItem(**r) for r in raw])
 
 
+# ==========================================================
+# GET CVE POR ID
+# ----------------------------------------------------------
+# ⚠ DEBE IR DESPUÉS que /_status (ver docstring del módulo).
+# ==========================================================
 @router.get("/{cve_id}", response_model=Optional[CveMatchOut])
 async def get_cve(cve_id: str) -> Optional[CveMatchOut]:
     """
@@ -115,21 +146,3 @@ async def get_cve(cve_id: str) -> Optional[CveMatchOut]:
     out = CveMatchOut(**raw[0])
     await cve_cache.set(f"cve:id:{cve_id}", [out.model_dump()])
     return out
-
-
-# ==========================================================
-# HEALTH
-# ==========================================================
-@router.get("/_status")
-async def cve_status() -> dict[str, Any]:
-    """
-    Pequeño endpoint de diagnóstico para saber si el cache y el
-    matcher están operativos.
-    """
-    return {
-        "cache_enabled": cve_cache.enabled,
-        "nvd_key_configured": bool(settings.NVD_API_KEY),
-        "nvd_base_url": settings.NVD_BASE_URL,
-        "nvd_timeout_s": settings.NVD_TIMEOUT_S,
-        "soft_fail": settings.NVD_SOFT_FAIL,
-    }

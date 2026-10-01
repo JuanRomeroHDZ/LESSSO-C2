@@ -19,6 +19,8 @@ services:
   api:
     build:
       context: ./backend
+      args:
+        INSTALL_DEV: ${INSTALL_DEV:-false}
     container_name: juanmap_api
     restart: unless-stopped
     ports:
