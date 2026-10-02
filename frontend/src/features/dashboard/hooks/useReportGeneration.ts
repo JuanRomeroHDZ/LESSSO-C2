@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { save, open } from '@tauri-apps/plugin-dialog'
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs'
 import type { HostInfo, PortInfo } from '../../../core/store/useScanStore'
-import type { VaultCred } from '../../../core/store/vaultStore' // <-- IMPORTACIÓN CORREGIDA
+import type { VaultCred } from '../../../core/store/vaultStore'
 import type { CveMatch, Severity } from '../utils/cve'
 import { useUiStore, type PhaseLogEntry } from '../../../core/store/uiStore'
 import {
@@ -374,7 +374,7 @@ function buildSignatureMd(signatures: any): string {
   }
 
   let md = "## Firmas de Aprobación\n\n";
-  
+   
   if (reviewer && reviewer.name && reviewer.name.trim() !== '') {
     const audRole = escapeMdCell(auditor.role ? auditor.role : '-');
     const revRole = escapeMdCell(reviewer.role ? reviewer.role : '-');
@@ -393,19 +393,19 @@ function buildSignatureMd(signatures: any): string {
     md += "| Campo | Detalle |\n";
     md += "|---|---|\n";
     md += "| **Auditor** | " + escapeMdCell(auditor.name) + " |\n";
-    
+     
     if (auditor.role && auditor.role.trim() !== '') {
       md += "| **Cargo** | " + escapeMdCell(auditor.role) + " |\n";
     }
-    
+     
     if (auditor.company && auditor.company.trim() !== '') {
       md += "| **Empresa** | " + escapeMdCell(auditor.company) + " |\n";
     }
-    
+     
     const audDate = auditor.date ? auditor.date : new Date().toISOString();
     md += "| **Fecha (UTC)** | `" + audDate + "` |\n\n";
   }
-  
+   
   md += "---\n\n";
   return md;
 }
@@ -571,10 +571,10 @@ export function useReportGeneration(
         md += `| Severidad | Cantidad |\n`
         md += `|---|---|\n`
         md += `| **Críticos** | ${exec.global.crit} |\n`
-        md += `| **Altos**    | ${exec.global.high} |\n`
-        md += `| **Medios**   | ${exec.global.med} |\n`
-        md += `| **Bajos**    | ${exec.global.low} |\n`
-        md += `| **Total**    | **${exec.global.total}** |\n\n`
+        md += `| **Altos**   | ${exec.global.high} |\n`
+        md += `| **Medios**  | ${exec.global.med} |\n`
+        md += `| **Bajos**   | ${exec.global.low} |\n`
+        md += `| **Total**   | **${exec.global.total}** |\n\n`
 
         if (exec.topServices.length > 0) {
           md += `### Top Servicios Expuestos\n\n`
@@ -715,10 +715,11 @@ export function useReportGeneration(
       const exec = computeExecutiveSummary(filteredData)
       const timeline = readTimelineSnapshot()
 
+      // NOTA: Se eliminó el @import problemático que colapsaba el CSS en WebKitGTK
       const css = `
         :root{--c-dark:#0b282c;--c-crit:#dc2626;--c-high:#ea580c;--c-med:#ca8a04;--c-low:#2563eb;--c-unknown:#64748b;--c-border:#e2e8f0;--c-bg-soft:#f8fafc;--c-text:#0f172a;--c-muted:#64748b;}
         *{box-sizing:border-box} html{margin:0;padding:0;background:#f1f5f9;height:100%}
-        body{margin:0;padding:24px;background:#f1f5f9;font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:var(--c-text);font-size:10pt;line-height:1.45;min-height:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow-y:auto;}
+        body{margin:0;padding:24px;background:#f1f5f9;font-family:'Poppins',system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:var(--c-text);font-size:10pt;line-height:1.45;min-height:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow-y:auto;}
         .container{max-width:1200px;margin:0 auto}
         h1{font-size:20pt;font-weight:900;color:var(--c-dark);margin:0 0 6px;letter-spacing:-0.02em;text-transform:uppercase}
         h2{font-size:13pt;font-weight:800;color:var(--c-dark);margin:26px 0 10px;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--c-dark);padding-bottom:4px}
@@ -747,7 +748,7 @@ export function useReportGeneration(
         tbody tr:last-child td{border-bottom:none}
         table.compact{font-size:9pt}
         table.compact tbody td{padding:6px 8px}
-        code{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:9pt;background:#f1f5f9;padding:1px 5px;border-radius:3px;color:#0f172a}
+        code{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:9pt;background:#0f172a;padding:2px 6px;border-radius:4px;color:#f8fafc}
         .badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
         .badge.up{background:#dcfce7;color:#166534;border:1px solid #22c55e}
         .badge.down{background:#fee2e2;color:#991b1b;border:1px solid #ef4444}
@@ -776,7 +777,10 @@ export function useReportGeneration(
         }
       `
 
-      let html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>LESSSO C2 Report — ${escapeHtml(target)}</title><style>${css}</style></head><body><div class="container">`
+      // NOTA: Se inyecta la fuente de Google mediante una etiqueta <link> segura en el Head.
+      let html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>LESSSO C2 Report — ${escapeHtml(target)}</title>`
+      html += `<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap" rel="stylesheet">`
+      html += `<style>${css}</style></head><body><div class="container">`
 
       html += `<h2>Scope &amp; Metodología</h2>`
       html += `<div class="section">`
@@ -1150,8 +1154,8 @@ export function useReportGeneration(
         notes: redTeamNotes || undefined,
         signatures: signatures.auditor.name.trim() ? signatures : undefined,
         includeCvss,
-        include_metrics: includeMetrics,     // Se inyecta en el JSON
-        include_inventory: includeInventory, // Se inyecta en el JSON
+        include_metrics: includeMetrics,
+        include_inventory: includeInventory,
         timeline: timeline.examStartAt
           ? {
               examStartAt: new Date(timeline.examStartAt).toISOString(),
@@ -1241,13 +1245,13 @@ export function useReportGeneration(
       }
 
       const filePath = await save({ defaultPath: `lessso_c2_report_${Date.now()}.${extension}`, filters: [{ name: 'Documento', extensions: [extension] }] })
-      
+       
       if (filePath) {
         await writeTextFile(filePath, content)
         alert(`✅ Reporte exportado exitosamente:\n${filePath}`)
-        return true 
+        return true  
       }
-      return false 
+      return false  
     } catch (e: any) {
       const errorMsg = e.message || String(e);
       if (!errorMsg.toLowerCase().includes('cancel')) alert(`Ocurrió un problema al guardar el archivo:\n${errorMsg}`);

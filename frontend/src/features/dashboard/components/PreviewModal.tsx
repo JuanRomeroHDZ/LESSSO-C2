@@ -22,6 +22,19 @@ export function PreviewModal({
   jsonContent,
 }: PreviewModalProps) {
   const [isSaving, setIsSaving] = useState(false);
+  const [iframeSrc, setIframeSrc] = useState<string>('');
+
+  // Codificador seguro a Base64 (Soporta acentos y caracteres especiales de UTF-8)
+  useEffect(() => {
+    if (type === 'html' && htmlContent) {
+      try {
+        const base64Html = btoa(unescape(encodeURIComponent(htmlContent)));
+        setIframeSrc(`data:text/html;charset=utf-8;base64,${base64Html}`);
+      } catch (err) {
+        console.error("Error codificando la vista previa:", err);
+      }
+    }
+  }, [type, htmlContent]);
 
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -94,7 +107,13 @@ export function PreviewModal({
 
           {type === 'html' && (
             <div className="w-full h-full rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-inner bg-white">
-              <iframe title="Preview HTML" sandbox="allow-scripts allow-same-origin" srcDoc={htmlContent} scrolling="yes" className="w-full h-full border-0 block" />
+              {iframeSrc && (
+                <iframe 
+                  title="Preview HTML" 
+                  src={iframeSrc} 
+                  className="w-full h-full border-0 block bg-white" 
+                />
+              )}
             </div>
           )}
         </div>
