@@ -18,7 +18,7 @@ export function VaultTable({
 }: VaultTableProps) {
   return (
     <div className="flex-1 overflow-auto custom-scrollbar border border-slate-200 dark:border-slate-800/80 rounded-xl shadow-sm bg-white dark:bg-slate-900/20">
-      <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
+      <table className="w-full table-fixed text-left text-xs text-slate-600 dark:text-slate-300">
         <thead className="bg-slate-50 dark:bg-slate-900/80 uppercase font-bold text-[10px] tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-800/80 sticky top-0 z-10">
           <tr>
             <th className="p-3">Credencial</th>
@@ -28,24 +28,24 @@ export function VaultTable({
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
           {credentials.map(c => (
             <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors group">
-              <td className="p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-bold text-slate-900 dark:text-white">{c.target}</span>
-                  <span className="text-[9px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-sm border border-slate-200 dark:border-slate-700">
+              <td className="p-3 min-w-0">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="font-bold text-slate-900 dark:text-white break-all">{c.target}</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded-sm border border-slate-200 dark:border-slate-700 shrink-0">
                     {c.type}
                   </span>
                 </div>
-                <div className="text-slate-500 text-[11px] mb-2 flex items-center gap-1.5">
-                  <KeyRound size={10} /> {c.username || 'Sin usuario'}
+                <div className="text-slate-500 text-[11px] mb-2 flex items-center gap-1.5 break-all">
+                  <KeyRound size={10} className="shrink-0" /> {c.username || 'Sin usuario'}
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="font-mono text-xs text-teal-600 dark:text-teal-400 break-all bg-teal-50 dark:bg-teal-500/10 border border-teal-100 dark:border-teal-500/20 px-2 py-1 rounded w-fit max-w-full">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="font-mono text-xs text-teal-600 dark:text-teal-400 break-all bg-teal-50 dark:bg-teal-500/10 border border-teal-100 dark:border-teal-500/20 px-2 py-1 rounded w-fit max-w-[180px] overflow-hidden text-ellipsis whitespace-nowrap">
                     {revealed[c.id] ? c.secret : '••••••••••••••••'}
                   </div>
-                  <button onClick={() => onToggleReveal(c.id)} className="text-slate-400 hover:text-teal-500 transition-colors p-1" title="Mostrar/Ocultar">
+                  <button onClick={() => onToggleReveal(c.id)} className="text-slate-400 hover:text-teal-500 transition-colors p-1 shrink-0" title="Mostrar/Ocultar">
                     {revealed[c.id] ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
-                  <button onClick={() => onCopy(c.secret)} className="text-slate-400 hover:text-teal-500 transition-colors p-1" title="Copiar al portapapeles">
+                  <button onClick={() => onCopy(c.secret)} className="text-slate-400 hover:text-teal-500 transition-colors p-1 shrink-0" title="Copiar al portapapeles">
                     <Copy size={14} />
                   </button>
                 </div>
@@ -59,8 +59,11 @@ export function VaultTable({
           ))}
           {credentials.length === 0 && (
             <tr>
-              <td colSpan={2} className="p-8 text-center text-slate-400 dark:text-slate-500 text-xs font-mono">
-                Bóveda vacía. Almacena contraseñas o hashes descubiertos.
+              <td colSpan={2} className="p-4 align-middle">
+                <div className="flex flex-col items-center justify-center w-full min-w-0 break-words whitespace-normal text-slate-400 dark:text-slate-500 text-[11px] font-mono leading-relaxed">
+                  <span>Bóveda vacía.</span>
+                  <span>Almacena contraseñas o hashes.</span>
+                </div>
               </td>
             </tr>
           )}

@@ -68,10 +68,10 @@ export default function App() {
           
           <WorkspaceRouter activeWorkspace={activeWorkspace as WorkspaceType} />
 
-          {/* Cajón de Terminal Colapsable (Estilo VS Code) */}
+          {/* Cajón de Terminal Colapsable (Estilo VS Code - Altura Dinámica) */}
           <div 
-            className={`absolute bottom-0 left-0 right-0 border-t border-slate-300 dark:border-slate-700 bg-[#0b1120] transition-transform duration-300 ease-in-out z-40 print:hidden shadow-[0_-10px_40px_rgba(0,0,0,0.2)] ${
-              isTerminalOpen ? 'translate-y-0 h-[35vh]' : 'translate-y-full h-[35vh]'
+            className={`bg-[#0b1120] transition-all duration-300 ease-in-out z-40 print:hidden flex flex-col shrink-0 ${
+              isTerminalOpen ? 'h-[35vh] border-t border-slate-300 dark:border-slate-700' : 'h-0 border-transparent overflow-hidden'
             }`}
           >
             <TerminalPanel />

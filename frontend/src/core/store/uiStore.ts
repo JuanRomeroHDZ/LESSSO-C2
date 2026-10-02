@@ -104,7 +104,7 @@ export const useUiStore = create<UiState>()(
       volume: 1.0,
       soundEnabled: true,
       isTerminalOpen: false,
-      activeWorkspace: 'recon',
+      activeWorkspace: 'scanner',
       quickNotesOpen: false,
 
       // ---------- Reporte ----------

@@ -1,22 +1,27 @@
 import { useUiStore } from '../../core/store/uiStore';
-import { Crosshair, Network, Bomb, ShieldAlert, Cpu, BookOpen, Server } from 'lucide-react';
+import { Crosshair, Activity, Network, Bomb, ShieldAlert, BookOpen, Server, Lock, Edit3, Palette, FileOutput } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
+// Rediseño Modular: Una Responsabilidad por Vista
 const WORKSPACES = [
-  { id: 'recon', icon: Crosshair, label: 'Reconocimiento' },
-  { id: 'topo', icon: Network, label: 'Topología' },
-  { id: 'inventory', icon: Server, label: 'Inventario (Activos)' },
+  { id: 'scanner', icon: Crosshair, label: 'Motor de Ataque (Escáner)' },
+  { id: 'dashboard', icon: Activity, label: 'Dashboard (Resultados y KPIs)' },
+  { id: 'topo', icon: Network, label: 'Topología de Red' },
+  { id: 'inventory', icon: Server, label: 'Inventario Global (Activos)' },
   { id: 'fuzz', icon: Bomb, label: 'Fuzzing & Enum' },
   { id: 'arsenal', icon: ShieldAlert, label: 'Arsenal' },
-  { id: 'cerebro', icon: Cpu, label: 'Cerebro (Notas)' },
+  { id: 'vault', icon: Lock, label: 'Bóveda de Credenciales' },
+  { id: 'notes', icon: Edit3, label: 'Bitácora de Auditoría' },
+  { id: 'whiteboard', icon: Palette, label: 'Pizarra Gráfica' },
   { id: 'intel', icon: BookOpen, label: 'OSINT & Intel' },
+  { id: 'reports', icon: FileOutput, label: 'Report Studio' },
 ] as const;
 
 export function Sidebar() {
   const { activeWorkspace, setActiveWorkspace } = useUiStore();
 
   return (
-    <aside className="w-14 shrink-0 bg-slate-50 dark:bg-[#09090b] border-r border-slate-200 dark:border-slate-800/60 flex flex-col items-center py-4 gap-2 z-20 print:hidden">
+    <aside className="w-14 shrink-0 bg-slate-50 dark:bg-[#09090b] border-r border-slate-200 dark:border-slate-800/60 flex flex-col items-center py-4 gap-2 z-20 print:hidden overflow-y-auto custom-scrollbar">
       {WORKSPACES.map((ws) => {
         const isActive = activeWorkspace === ws.id;
         const Icon = ws.icon;
@@ -28,7 +33,7 @@ export function Sidebar() {
             className={cn(
               "p-2.5 rounded-xl transition-all duration-200 group relative",
               isActive  
-                ? "bg-[#0b282c] dark:bg-teal-500/10 text-white dark:text-teal-400"  
+                ? "bg-[#0b282c] dark:bg-teal-500/10 text-white dark:text-teal-400 shadow-sm"  
                 : "text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200"
             )}
           >

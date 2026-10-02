@@ -1318,7 +1318,9 @@ export function useReportGeneration(
     buildJsonPayload,
   ])
 
-  const handleSaveFile = async (type: 'md' | 'html' | 'json') => {
+// ... (todo tu código previo de collectCves, formatHTML, buildJson, etc. se mantiene igual hasta handleSaveFile) ...
+
+const handleSaveFile = async (type: 'md' | 'html' | 'json'): Promise<boolean> => {
     try {
       const extension = type === 'md' ? 'md' : type === 'html' ? 'html' : 'json'
 
@@ -1330,16 +1332,11 @@ export function useReportGeneration(
         const payload = buildJsonPayload(exportedAt)
         const jsonString = JSON.stringify(payload, null, 2)
         const integrityHash = await sha256Hex(jsonString)
-        content = JSON.stringify(
-          { ...payload, hash: integrityHash },
-          null,
-          2,
-        )
+        content = JSON.stringify({ ...payload, hash: integrityHash }, null, 2)
       } else {
         const jsonPayload = JSON.stringify(buildJsonPayload(exportedAt), null, 2)
         const integrityHash = await sha256Hex(jsonPayload)
-        content =
-          type === 'md'
+        content = type === 'md'
             ? generateMarkdown(integrityHash, exportedAt)
             : generateHTML(integrityHash, exportedAt)
       }
@@ -1348,14 +1345,24 @@ export function useReportGeneration(
         defaultPath: `lessso_c2_report_${Date.now()}.${extension}`,
         filters: [{ name: 'Documento', extensions: [extension] }],
       })
+      
       if (filePath) {
         await writeTextFile(filePath, content)
-        alert(`Guardado en:\n${filePath}`)
+        alert(`✅ Reporte exportado exitosamente:\n${filePath}`)
+        return true // Retornamos true para avisarle al Modal que cierre
       }
+      return false // Si el usuario canceló la ventana de su sistema operativo
     } catch (e: any) {
-      alert(`Error al guardar:\n${e.message || e}`)
+      const errorMsg = e.message || String(e);
+      if (!errorMsg.toLowerCase().includes('cancel')) {
+        alert(`Ocurrió un problema al guardar el archivo:\n${errorMsg}`);
+      }
+      return false
     }
   }
+
+
+
 
   const handleImport = async () => {
     try {
@@ -1370,9 +1377,14 @@ export function useReportGeneration(
         else alert('Formato de workspace no reconocido.')
       }
     } catch (err: any) {
-      alert(`Error al cargar archivo:\n${err.message || err}`)
+      const errorMsg = err.message || String(err);
+      if (!errorMsg.toLowerCase().includes('cancel')) {
+        alert(`Ocurrió un problema al cargar el archivo:\n${errorMsg}`);
+      }
     }
   }
+
+
 
   /**
    * Calcula el hash de integridad de un snapshot congelado.

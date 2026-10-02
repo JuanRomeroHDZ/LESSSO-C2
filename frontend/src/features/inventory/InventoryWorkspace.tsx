@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useScanStore } from '../../core/store/useScanStore';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { AssetsTable } from './components/AssetsTable';
 import { Search, Download, Trash2, Server } from 'lucide-react';
 
@@ -41,7 +43,7 @@ export function InventoryWorkspace() {
 
   const clearSelection = () => setSelectedIps(new Set());
 
-  const exportToCSV = () => {
+  const exportToCSV = async () => {
     if (selectedIps.size === 0) return;
     const hostsToExport = filteredHosts.filter(h => selectedIps.has(h.ip));
     
@@ -55,20 +57,24 @@ export function InventoryWorkspace() {
       h.ports?.reduce((acc, p) => acc + (p.cves?.length || 0), 0) || 0
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(r => r.join(','))
-    ].join('\n');
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `lessso_inventory_${new Date().getTime()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      const filePath = await save({
+        defaultPath: `lessso_inventory_${Date.now()}.csv`,
+        filters: [{ name: 'CSV', extensions: ['csv'] }]
+      });
+      if (filePath) {
+        await writeTextFile(filePath, csvContent);
+        alert('✅ Inventario exportado exitosamente a CSV.');
+      }
+    } catch (error: any) {
+      if (!error.message?.toLowerCase().includes('cancel')) {
+        alert('Error al guardar el CSV: ' + error);
+      }
+    }
   };
+
 
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-slate-950 p-4 space-y-4 min-w-0">

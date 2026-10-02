@@ -8,7 +8,6 @@ import { useHostExpansion } from './hooks/useHostExpansion'
 import { useReportGeneration } from './hooks/useReportGeneration'
 import { useCveEnrichment } from './hooks/useCveEnrichment'
 
-import { ScanConfig } from '../scanner/ScanConfig'
 import { MetricsBar } from './components/MetricsBar'
 import { FiltersBar } from './components/FiltersBar'
 import { HostListSidebar } from './components/HostListSidebar'
@@ -35,10 +34,8 @@ export function DashboardPanel() {
   const [previewExportedAt, setPreviewExportedAt] = useState<string | null>(null)
   const [integrityHash, setIntegrityHash] = useState<string | null>(null)
   
-  // NUEVO ESTADO: Host seleccionado y Paneles Colapsables
   const [selectedHostIp, setSelectedHostIp] = useState<string | null>(null)
-  const [showConfig, setShowConfig] = useState(true) // Visible por defecto al iniciar
-  const [showMetrics, setShowMetrics] = useState(false) // Oculto por defecto para salvar espacio
+  const [showMetrics, setShowMetrics] = useState(false)
 
   const filters = useHostFiltering(parsedData || [])
   const metrics = useDashboardMetrics(parsedData || [])
@@ -54,11 +51,6 @@ export function DashboardPanel() {
 
   const reportGeneratorRef = useRef(reportGenerator)
   reportGeneratorRef.current = reportGenerator
-
-  // Auto-ocultar panel de configuración cuando inicia un escaneo (Para foco táctico)
-  useEffect(() => {
-    if (isScanning) setShowConfig(false);
-  }, [isScanning]);
 
   useEffect(() => {
     if (!previewModal) {
@@ -112,9 +104,6 @@ export function DashboardPanel() {
   if (isScanning && (!parsedData || parsedData.length === 0)) return <LoadingState />
   if (!parsedData || parsedData.length === 0) return (
     <div className="flex h-full min-h-0 bg-slate-50 dark:bg-slate-950">
-      <div className="w-[320px] shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] overflow-y-auto custom-scrollbar">
-        <ScanConfig />
-      </div>
       <div className="flex-1 p-4"><EmptyState handleImport={reportGenerator.handleImport} /></div>
     </div>
   );
@@ -134,35 +123,23 @@ export function DashboardPanel() {
         }
       `}</style>
 
-      {/* 1. BARRA SUPERIOR DE FILTROS Y CONTROLES */}
       <FiltersBar 
         {...filters} 
         compactMode={compactMode} toggleCompactMode={toggleCompactMode} 
         showDiff={showDiff} setShowDiff={setShowDiff} historyData={historyData}
-        showConfig={showConfig} setShowConfig={setShowConfig}
         showMetrics={showMetrics} setShowMetrics={setShowMetrics}
         onExport={setPreviewModal} onPrint={handleOpenPrint} onClear={clearHistory}
         cveAutoEnrich={cveAutoEnrich} toggleCveAutoEnrich={toggleCveAutoEnrich}
       />
 
-      {/* 2. CINTA DE MÉTRICAS (Colapsable) */}
       {showMetrics && (
         <div className="shrink-0 p-3 bg-white dark:bg-[#020617] border-b border-slate-200 dark:border-slate-800/80 shadow-sm transition-all animate-in slide-in-from-top-2 print:hidden z-10">
           <MetricsBar theme={theme} totalHosts={parsedData.length} {...metrics} />
         </div>
       )}
 
-      {/* 3. ESPACIO DE TRABAJO INFERIOR (Configuración + Master/Detail) */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         
-        {/* Panel Izquierdo: Configuración del Motor (Colapsable) */}
-        {showConfig && (
-          <div className="w-[320px] shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] overflow-y-auto custom-scrollbar animate-in slide-in-from-left-2 print:hidden">
-            <ScanConfig />
-          </div>
-        )}
-
-        {/* Panel Central: Lista Táctica (Maestro) */}
         <div className="w-[280px] lg:w-[320px] shrink-0 border-r border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 h-full p-3 print:hidden">
           <HostListSidebar 
             hosts={filters.filteredData} 
@@ -171,7 +148,6 @@ export function DashboardPanel() {
           />
         </div>
 
-        {/* Panel Derecho: Detalle Profundo (Detalle) */}
         <div className="flex-1 min-w-0 h-full p-3 bg-slate-100 dark:bg-[#09090b]">
           {selectedHost ? (
             <HostDetailView
@@ -187,13 +163,13 @@ export function DashboardPanel() {
             </div>
           )}
         </div>
-
       </div>
 
+      {/* AQUÍ ESTABA EL ERROR: Solo se quitó filteredData */}
       {previewModal && (
         <PreviewModal
           type={previewModal} onClose={() => setPreviewModal(null)} onSave={reportGenerator.handleSaveFile}
-          filteredData={filters.filteredData} mdContent={mdContent} htmlContent={htmlContent}
+          mdContent={mdContent} htmlContent={htmlContent}
           integrityHash={integrityHash} jsonContent={jsonContent}
         />
       )}
