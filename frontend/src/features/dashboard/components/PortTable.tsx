@@ -1,11 +1,11 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import type { HostInfo } from '../../../core/store/scanStore'
 import { IANA_PORTS } from '../utils/constants'
 import { detectCVEs } from '../utils/cve'
 import type { CveMatch } from '../utils/cve'
 import { ScriptBlock } from './ScriptBlock'
 import { CveList } from './CveList'
-import { ChevronRight, ChevronDown, CheckCircle2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, CheckCircle2, ShieldAlert } from 'lucide-react'
 
 interface PortTableProps {
   host: HostInfo
@@ -26,6 +26,12 @@ export function PortTable({
   togglePortExpand,
   pyClass,
 }: PortTableProps) {
+  // Estado local para colapsar/expandir CVEs por puerto
+  const [showCves, setShowCves] = useState<Record<string, boolean>>({});
+  const toggleCves = (portKey: string) => {
+    setShowCves(prev => ({ ...prev, [portKey]: !prev[portKey] }));
+  };
+
   return (
     <div className="w-full overflow-x-auto print:border-none print:overflow-visible">
       <table className="w-full text-[11px] text-left text-slate-600 dark:text-slate-300 print:text-black">
@@ -114,7 +120,21 @@ export function PortTable({
                     </td>
                     <td className={`px-4 ${pyClass} align-top pt-2.5`}>
                       {cvList.length > 0 ? (
-                        <CveList cves={cvList} compact={compactMode} />
+                        <div className="flex flex-col gap-2 items-start">
+                          <button
+                            onClick={() => toggleCves(portKey)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 text-[9px] font-bold uppercase tracking-wider rounded transition-colors"
+                          >
+                            <ShieldAlert size={12} />
+                            {showCves[portKey] ? 'Ocultar CVEs' : `${cvList.length} CVEs`}
+                          </button>
+                          
+                          {showCves[portKey] && (
+                            <div className="mt-1 w-full animate-in fade-in slide-in-from-top-2">
+                              <CveList cves={cvList} compact={compactMode} />
+                            </div>
+                          )}
+                        </div>
                       ) : (
                         !compactMode && (
                           <div className="flex items-center gap-1.5 text-slate-400 dark:text-slate-600 text-[10px] uppercase font-semibold tracking-wider">

@@ -9,11 +9,9 @@ import { Sidebar } from './components/layout/Sidebar';
 import { Footer } from './components/layout/Footer';
 import { WorkspaceRouter } from './components/layout/WorkspaceRouter';
 
-// Definimos el tipo estricto que requiere tu WorkspaceRouter
-type WorkspaceType = 'recon' | 'topo' | 'fuzz' | 'arsenal' | 'cerebro' | 'intel';
+type WorkspaceType = 'recon' | 'topo' | 'inventory' | 'fuzz' | 'arsenal' | 'cerebro' | 'intel';
 
 export default function App() {
-  // Manejo de estado visual centralizado
   const { theme, activeWorkspace, isTerminalOpen } = useUiStore();
   const { setParsedData, appendOutput, checkVpnStatus, pingBackend } = useScanStore();
 
@@ -66,15 +64,19 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden min-h-0 relative print:h-auto print:overflow-visible">
         <Sidebar />
 
-        <main className="flex-1 flex flex-col min-w-0 print:h-auto print:overflow-visible">
-          {/* Aquí aplicamos el casteo estricto para que TypeScript no se queje */}
+        <main className="flex-1 flex flex-col min-w-0 relative print:h-auto print:overflow-visible">
+          
           <WorkspaceRouter activeWorkspace={activeWorkspace as WorkspaceType} />
 
-          {(activeWorkspace === 'recon' || activeWorkspace === 'topo') && (
-            <div className={`border-t border-slate-300 dark:border-slate-700 bg-[#0b1120] transition-all duration-300 shrink-0 print:hidden ${isTerminalOpen ? 'h-[30vh]' : 'h-0 hidden'}`}>
-              <TerminalPanel />
-            </div>
-          )}
+          {/* Cajón de Terminal Colapsable (Estilo VS Code) */}
+          <div 
+            className={`absolute bottom-0 left-0 right-0 border-t border-slate-300 dark:border-slate-700 bg-[#0b1120] transition-transform duration-300 ease-in-out z-40 print:hidden shadow-[0_-10px_40px_rgba(0,0,0,0.2)] ${
+              isTerminalOpen ? 'translate-y-0 h-[35vh]' : 'translate-y-full h-[35vh]'
+            }`}
+          >
+            <TerminalPanel />
+          </div>
+
         </main>
       </div>
 

@@ -180,10 +180,10 @@ export function NotesPanel() {
   }), []);
 
   return (
-    <div ref={panelRef} className="flex flex-col h-full min-h-[600px] flex-1 bg-white dark:bg-[#020617] rounded-xl shadow-sm border border-slate-200 dark:border-slate-800/80 overflow-hidden" data-color-mode={theme}>
+    <div ref={panelRef} className="flex flex-col h-full min-h-[600px] flex-1 bg-slate-50 dark:bg-[#0b1120] rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden" data-color-mode={theme}>
       
       {/* EXAM PHASES */}
-      <div className="flex flex-wrap items-center gap-3 px-5 py-2.5 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-900/50 shrink-0">
+      <div className="flex flex-wrap items-center gap-3 px-5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-[#060a13] shrink-0">
         <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-1.5"><Target size={12}/> Fases (Kill Chain)</span>
         <div className="flex flex-wrap gap-1">
           {PHASES.map((p) => {
@@ -203,7 +203,7 @@ export function NotesPanel() {
       </div>
 
       {showPhaseLog && phaseLog.length > 0 && (
-        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800/80 bg-slate-950 shrink-0 max-h-32 overflow-y-auto custom-scrollbar shadow-inner">
+        <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-950 shrink-0 max-h-32 overflow-y-auto custom-scrollbar shadow-inner">
           <table className="w-full text-[10px]">
             <thead className="text-slate-500 uppercase tracking-widest border-b border-slate-800"><tr><th className="text-left pb-2 font-bold">Fase</th><th className="text-left pb-2 font-bold">Inicio UTC</th><th className="text-left pb-2 font-bold">Fin UTC</th><th className="text-right pb-2 font-bold">Duración</th></tr></thead>
             <tbody className="divide-y divide-slate-800/50">
@@ -221,9 +221,10 @@ export function NotesPanel() {
       )}
 
       {/* HEADER & TEMPLATES */}
-      <div className="flex justify-between items-center px-5 py-3 border-b border-slate-200 dark:border-slate-800/80 bg-white dark:bg-[#020617] shrink-0">
-        <h2 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2"><FileTerminal size={16} className="text-teal-500"/> Bitácora de Auditoría</h2>
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap justify-between items-center gap-3 px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] shrink-0">
+        <h2 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
+        <FileTerminal size={16} className="text-teal-500"/> Bitácora de Auditoría</h2>
+        <div className="flex flex-wrap items-center gap-3">
           <span className={`text-[9px] font-bold uppercase tracking-wider ${autoSaveEnabled ? 'text-slate-500' : 'text-orange-500 animate-pulse'}`}>{saveStatus}</span>
           <button onClick={pasteAndInsertImage} className="flex items-center gap-1.5 px-3 py-1.5 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border border-fuchsia-500/20 text-[10px] font-bold uppercase rounded-md hover:bg-fuchsia-500/20 transition-colors"><ClipboardPaste size={12}/> Pegar (Ctrl+V)</button>
           
@@ -241,7 +242,7 @@ export function NotesPanel() {
       </div>
 
       {/* MARKDOWN TOOLBAR */}
-      <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-900/50 shrink-0">
+      <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#060a13] shrink-0">
         <ToolbarButton onClick={cmdBold} title="Negrita (Ctrl+B)"><Bold size={14}/></ToolbarButton>
         <ToolbarButton onClick={cmdItalic} title="Cursiva (Ctrl+I)"><Italic size={14}/></ToolbarButton>
         <ToolbarButton onClick={cmdCode} title="Código inline"><Code size={14}/></ToolbarButton>
@@ -260,7 +261,7 @@ export function NotesPanel() {
         <ToolbarButton onClick={cmdLink} title="Enlace"><Link size={14}/></ToolbarButton>
         <ToolbarButton onClick={cmdImage} title="Imagen"><Image size={14}/></ToolbarButton>
 
-        <div className="ml-auto flex gap-1.5 bg-slate-200 dark:bg-slate-950 p-1 rounded-lg border border-slate-300 dark:border-slate-800">
+        <div className="ml-auto flex gap-1.5 bg-slate-200 dark:bg-slate-900 p-1 rounded-lg border border-slate-300 dark:border-slate-800">
           <ToolbarButton onClick={() => setPreviewMode('edit')} active={previewMode === 'edit'} title="Solo edición"><Edit3 size={12}/></ToolbarButton>
           <ToolbarButton onClick={() => setPreviewMode('split')} active={previewMode === 'split'} title="Dividido"><Columns size={12}/></ToolbarButton>
           <ToolbarButton onClick={() => setPreviewMode('preview')} active={previewMode === 'preview'} title="Solo vista"><Eye size={12}/></ToolbarButton>
@@ -275,13 +276,13 @@ export function NotesPanel() {
             value={redTeamNotes}
             onChange={e => handleChange(e.target.value)}
             spellCheck={false}
-            placeholder="Escribe tu bitácora de explotación en Markdown. Las imágenes pegadas (Ctrl+V) se guardarán automáticamente en tu sistema..."
-            className={`${previewMode === 'split' ? 'w-1/2 border-r' : 'w-full'} h-full resize-none outline-none p-6 font-mono text-[12px] leading-relaxed bg-white dark:bg-[#020617] text-slate-800 dark:text-teal-50/80 border-slate-200 dark:border-slate-800/80 custom-scrollbar placeholder:text-slate-600`}
+            placeholder="Escribe tu bitácora de explotación en Markdown. Las imágenes pegadas (Ctrl+V) se guardarán automáticamente..."
+            className={`${previewMode === 'split' ? 'w-1/2 border-r' : 'w-full'} h-full resize-none outline-none p-6 font-mono text-[12px] leading-relaxed bg-white dark:bg-[#020617] text-slate-800 dark:text-teal-400 border-slate-200 dark:border-slate-800 custom-scrollbar placeholder:text-slate-400 dark:placeholder:text-slate-700`}
           />
         )}
         {previewMode !== 'edit' && (
-          <div className={`${previewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-auto custom-scrollbar bg-slate-50 dark:bg-[#09090b]`}>
-            <div className="markdown-preview prose prose-slate dark:prose-invert max-w-none p-6 text-[13px] leading-relaxed" data-color-mode={theme}>
+          <div className={`${previewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-auto custom-scrollbar bg-slate-50 dark:bg-[#060a13]`}>
+            <div className="markdown-preview prose prose-slate dark:prose-invert max-w-none p-6 text-[13px] leading-relaxed text-slate-800 dark:text-slate-300" data-color-mode={theme}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[[rehypeSanitize, sanitizeSchema]]} urlTransform={sanitizeUrl} components={markdownComponents}>
                 {redTeamNotes || '_Bitácora vacía. Cierra tus findings..._'}
               </ReactMarkdown>

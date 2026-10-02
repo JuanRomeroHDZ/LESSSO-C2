@@ -1,10 +1,11 @@
 import { useUiStore } from '../../core/store/uiStore';
-import { Crosshair, Network, Bomb, ShieldAlert, Cpu, BookOpen } from 'lucide-react';
+import { Crosshair, Network, Bomb, ShieldAlert, Cpu, BookOpen, Server } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const WORKSPACES = [
   { id: 'recon', icon: Crosshair, label: 'Reconocimiento' },
   { id: 'topo', icon: Network, label: 'Topología' },
+  { id: 'inventory', icon: Server, label: 'Inventario (Activos)' },
   { id: 'fuzz', icon: Bomb, label: 'Fuzzing & Enum' },
   { id: 'arsenal', icon: ShieldAlert, label: 'Arsenal' },
   { id: 'cerebro', icon: Cpu, label: 'Cerebro (Notas)' },
@@ -26,8 +27,8 @@ export function Sidebar() {
             title={ws.label}
             className={cn(
               "p-2.5 rounded-xl transition-all duration-200 group relative",
-              isActive 
-                ? "bg-[#0b282c] dark:bg-teal-500/10 text-white dark:text-teal-400" 
+              isActive  
+                ? "bg-[#0b282c] dark:bg-teal-500/10 text-white dark:text-teal-400"  
                 : "text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-200"
             )}
           >

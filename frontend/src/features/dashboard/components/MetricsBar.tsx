@@ -27,8 +27,8 @@ export function MetricsBar({
         </div>
 
         <div className={`p-3 rounded-xl border shadow-sm flex flex-col justify-center transition-colors ${
-          sevMetrics.total > 0 
-            ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50' 
+          sevMetrics.total > 0  
+            ? 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-900/50'  
             : 'bg-white dark:bg-[#020617] border-slate-200 dark:border-slate-800/60'
         }`}>
           <div className="flex justify-between items-center mb-2">
@@ -98,7 +98,7 @@ export function MetricsBar({
             <BarChart data={topServicesData}>
               <XAxis dataKey="name" hide />
               <RechartsTooltip cursor={{ fill: theme === 'dark' ? '#1e293b' : '#f1f5f9' }} contentStyle={{ background: theme === 'dark' ? '#0f172a' : '#fff', border: theme === 'dark' ? '1px solid #1e293b' : '1px solid #e2e8f0', borderRadius: '8px', fontSize: '11px', fontFamily: 'monospace' }} />
-              <Bar dataKey="count" fill={theme === 'dark' ? '#2dd4bf' : '#0f172a'} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" fill="#2dd4bf" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

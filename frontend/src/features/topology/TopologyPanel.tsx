@@ -5,12 +5,13 @@ import 'reactflow/dist/style.css'
 import { useScanStore } from '../../core/store/useScanStore'
 import { Printer } from 'lucide-react'
 
-const nodeTypes: NodeTypes = {}
-const edgeTypes: EdgeTypes = {}
-const MAX_NODES = 100
+const MAX_NODES = 25
 
 export function TopologyPanel() {
   const { parsedData, isScanning, theme } = useScanStore()
+  
+  const nodeTypes = useMemo<NodeTypes>(() => ({}), []);
+  const edgeTypes = useMemo<EdgeTypes>(() => ({}), []);
 
   const { nodes, edges, isTrimmed } = useMemo(() => {
     if (!Array.isArray(parsedData) || parsedData.length === 0) {
@@ -24,15 +25,16 @@ export function TopologyPanel() {
         data: { label: '💻 Escáner LESSSO' },
         position: { x: 300, y: 50 },
         style: {
-          background: '#0f172a',
-          color: '#2dd4bf',
+          background: theme === 'dark' ? '#020617' : '#ffffff',
+          color: theme === 'dark' ? '#2dd4bf' : '#0f172a',
           fontWeight: '900',
-          borderRadius: '8px',
-          border: '2px solid #0f172a',
-          padding: '12px',
+          borderRadius: '12px',
+          border: theme === 'dark' ? '2px solid #2dd4bf' : '2px solid #0f172a',
+          padding: '16px 24px',
           fontFamily: 'monospace',
           textTransform: 'uppercase',
-          letterSpacing: '0.05em'
+          letterSpacing: '0.05em',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
         },
       },
     ]
@@ -51,11 +53,11 @@ export function TopologyPanel() {
       let osIcon = '📱'
       let borderColor = '#334155'
 
-      if (openPorts.includes('80') || openPorts.includes('443') || openPorts.includes('8080')) { osIcon = '🌐' } 
-      else if (openPorts.includes('3306') || openPorts.includes('5432') || openPorts.includes('1433')) { osIcon = '🗄' } 
-      else if (osLower.includes('cisco') || osLower.includes('router') || openPorts.includes('23')) { osIcon = '🖲'; borderColor = '#10b981' } 
-      else if (osLower.includes('linux')) { osIcon = '🐧'; borderColor = '#f59e0b' } 
-      else if (osLower.includes('windows')) { osIcon = '🪟'; borderColor = '#3b82f6' } 
+      if (openPorts.includes('80') || openPorts.includes('443') || openPorts.includes('8080')) { osIcon = '🌐' }  
+      else if (openPorts.includes('3306') || openPorts.includes('5432') || openPorts.includes('1433')) { osIcon = '🗄' }  
+      else if (osLower.includes('cisco') || osLower.includes('router') || openPorts.includes('23')) { osIcon = '🖲'; borderColor = '#10b981' }  
+      else if (osLower.includes('linux')) { osIcon = '🐧'; borderColor = '#f59e0b' }  
+      else if (osLower.includes('windows')) { osIcon = '🪟'; borderColor = '#3b82f6' }  
       else if (osLower.includes('mac') || osLower.includes('apple')) { osIcon = '🍎'; borderColor = '#94a3b8' }
 
       const totalPorts = host.ports?.length || 0

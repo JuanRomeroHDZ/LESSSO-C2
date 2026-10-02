@@ -101,7 +101,7 @@ export const useUiStore = create<UiState>()(
       theme: 'light',
       compactMode: false,
       zenMode: false,
-      volume: 50,
+      volume: 1.0,
       soundEnabled: true,
       isTerminalOpen: false,
       activeWorkspace: 'recon',
