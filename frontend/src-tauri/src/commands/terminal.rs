@@ -138,7 +138,10 @@ pub async fn send_terminal_signal(
 }
 
 #[tauri::command]
-pub async fn kill_terminal(state: State<'_, TerminalState>, session_id: String) -> Result<(), String> {
+pub async fn kill_terminal(
+    state: State<'_, TerminalState>,
+    session_id: String,
+) -> Result<(), String> {
     let pid_opt = {
         let mut pids = state.pids.lock().unwrap();
         pids.remove(&session_id)

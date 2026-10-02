@@ -1,9 +1,9 @@
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
 };
 use argon2::{Algorithm, Argon2, Params, Version};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use rand::RngCore;
 use zeroize::Zeroize;
 

@@ -3,7 +3,11 @@ use std::process::{Command, Stdio};
 use tauri::{AppHandle, Emitter};
 
 #[tauri::command]
-pub async fn run_fuzzer(app: AppHandle, target_url: String, wordlist: String) -> Result<(), String> {
+pub async fn run_fuzzer(
+    app: AppHandle,
+    target_url: String,
+    wordlist: String,
+) -> Result<(), String> {
     let mut cmd = Command::new("gobuster");
     cmd.args([
         "dir",
