@@ -8,8 +8,9 @@ import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { Footer } from './components/layout/Footer';
 import { WorkspaceRouter } from './components/layout/WorkspaceRouter';
+import { TacticalTodo } from './components/layout/TacticalTodo'; // <-- NUEVO
 
-type WorkspaceType = 'recon' | 'topo' | 'inventory' | 'fuzz' | 'arsenal' | 'cerebro' | 'intel';
+type WorkspaceType = 'recon' | 'topo' | 'inventory' | 'fuzz' | 'arsenal' | 'cerebro' | 'intel' | 'reports';
 
 export default function App() {
   const { theme, activeWorkspace, isTerminalOpen } = useUiStore();
@@ -68,7 +69,10 @@ export default function App() {
           
           <WorkspaceRouter activeWorkspace={activeWorkspace as WorkspaceType} />
 
-          {/* Cajón de Terminal Colapsable con min-h-0 estricto para evitar desbordes */}
+          {/* Componente Flotante del To-Do */}
+          <TacticalTodo />
+
+          {/* Cajón de Terminal Colapsable */}
           <div  
             className={`bg-[#0b1120] transition-all duration-300 ease-in-out z-40 print:hidden flex flex-col shrink-0 min-h-0 ${
               isTerminalOpen ? 'h-[35vh] border-t border-slate-300 dark:border-slate-700' : 'h-0 border-transparent overflow-hidden'

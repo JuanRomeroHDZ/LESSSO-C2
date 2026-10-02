@@ -19,7 +19,7 @@ export const EMPTY_SIGNATURE: ReportSignature = {
 }
 
 // ==========================================================
-// EXAM TIMER
+// EXAM TIMER & TO-DO
 // ==========================================================
 export type ExamPhase = 'recon' | 'enum' | 'exploit' | 'privesc' | 'loot' | 'done'
 
@@ -28,6 +28,12 @@ export interface PhaseLogEntry {
   startedAt: string // ISO UTC
   endedAt?: string  // ISO UTC
   durationMs?: number
+}
+
+export interface TodoItem {
+  id: string
+  text: string
+  done: boolean
 }
 
 export const EXAM_PHASES: ExamPhase[] = ['recon', 'enum', 'exploit', 'privesc', 'loot']
@@ -46,12 +52,13 @@ export interface UiState {
   isTerminalOpen: boolean
   activeWorkspace: string
   quickNotesOpen: boolean
+  todoPanelOpen: boolean // NUEVO
 
   // Reporte
   cveAutoEnrich: boolean
   includeCvss: boolean
-  includeMetrics: boolean      // NUEVO
-  includeInventory: boolean    // NUEVO
+  includeMetrics: boolean      
+  includeInventory: boolean    
   
   // Soporte para Múltiples Firmantes
   signatures: {
@@ -59,14 +66,15 @@ export interface UiState {
     reviewer: ReportSignature;
   }
 
-  // Exam timer
-  examStartAt: number | null         // epoch ms del botón Start (no se mueve)
-  examDurationMs: number             // duración configurada
-  examRunning: boolean               // false = pausado
-  examPausedAt: number | null        // epoch ms de la última pausa
-  examElapsedBeforePause: number     // ms acumulados antes de la pausa actual
+  // Exam timer y Tareas
+  examStartAt: number | null         
+  examDurationMs: number             
+  examRunning: boolean               
+  examPausedAt: number | null        
+  examElapsedBeforePause: number     
   currentPhase: ExamPhase
   phaseLog: PhaseLogEntry[]
+  todos: TodoItem[] // NUEVO
 
   // Acciones UI
   toggleTheme: () => void
@@ -77,6 +85,7 @@ export interface UiState {
   setIsTerminalOpen: (v: boolean) => void
   setActiveWorkspace: (workspace: string) => void
   toggleQuickNotes: () => void
+  toggleTodoPanel: () => void // NUEVO
 
   setCveAutoEnrich: (v: boolean) => void
   toggleCveAutoEnrich: () => void
@@ -84,22 +93,26 @@ export interface UiState {
   setIncludeCvss: (v: boolean) => void
   toggleIncludeCvss: () => void
 
-  toggleIncludeMetrics: () => void   // NUEVO
-  toggleIncludeInventory: () => void // NUEVO
+  toggleIncludeMetrics: () => void   
+  toggleIncludeInventory: () => void 
 
   // Acciones de Firma Dual
   setSignature: (type: 'auditor' | 'reviewer', patch: Partial<ReportSignature>) => void
   clearSignature: (type: 'auditor' | 'reviewer') => void
 
-  // Acciones del timer
+  // Acciones del timer y Tareas
   startExam: (durationMs?: number) => void
   pauseExam: () => void
   resumeExam: () => void
   resetExam: () => void
   setExamDuration: (durationMs: number) => void
   setPhase: (phase: ExamPhase) => void
-  /** Devuelve los ms restantes (o la duración si no se ha iniciado). */
   getRemainingMs: () => number
+
+  addTodo: (text: string) => void // NUEVO
+  toggleTodo: (id: string) => void // NUEVO
+  removeTodo: (id: string) => void // NUEVO
+  clearTodos: () => void // NUEVO
 }
 
 // ==========================================================
@@ -117,18 +130,19 @@ export const useUiStore = create<UiState>()(
       isTerminalOpen: false,
       activeWorkspace: 'scanner',
       quickNotesOpen: false,
+      todoPanelOpen: false,
 
       // ---------- Reporte ----------
       cveAutoEnrich: true,
       includeCvss: true,
-      includeMetrics: true,    // NUEVO
-      includeInventory: true,  // NUEVO
+      includeMetrics: true,    
+      includeInventory: true,  
       signatures: {
         auditor: { ...EMPTY_SIGNATURE },
         reviewer: { ...EMPTY_SIGNATURE }
       },
 
-      // ---------- Timer ----------
+      // ---------- Timer & Todos ----------
       examStartAt: null,
       examDurationMs: DEFAULT_EXAM_DURATION_MS,
       examRunning: false,
@@ -136,6 +150,7 @@ export const useUiStore = create<UiState>()(
       examElapsedBeforePause: 0,
       currentPhase: 'recon',
       phaseLog: [],
+      todos: [],
 
       // ---------- Acciones UI ----------
       toggleTheme: () =>
@@ -152,6 +167,7 @@ export const useUiStore = create<UiState>()(
       setIsTerminalOpen: (v) => set({ isTerminalOpen: v }),
       setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),
       toggleQuickNotes: () => set((s: UiState) => ({ quickNotesOpen: !s.quickNotesOpen })),
+      toggleTodoPanel: () => set((s: UiState) => ({ todoPanelOpen: !s.todoPanelOpen })),
 
       setCveAutoEnrich: (v) => set({ cveAutoEnrich: v }),
       toggleCveAutoEnrich: () => set((s: UiState) => ({ cveAutoEnrich: !s.cveAutoEnrich })),
@@ -243,6 +259,13 @@ export const useUiStore = create<UiState>()(
         const elapsed = now - s.examStartAt - s.examElapsedBeforePause
         return Math.max(0, s.examDurationMs - elapsed)
       },
+
+      // ---------- Acciones Tareas ----------
+      addTodo: (text) => set((s: UiState) => ({ todos: [{ id: Date.now().toString(), text, done: false }, ...s.todos] })),
+      toggleTodo: (id) => set((s: UiState) => ({ todos: s.todos.map((t: TodoItem) => t.id === id ? { ...t, done: !t.done } : t) })),
+      removeTodo: (id) => set((s: UiState) => ({ todos: s.todos.filter((t: TodoItem) => t.id !== id) })),
+      clearTodos: () => set({ todos: [] }),
+
     }),
     {
       name: 'lessso-c2-uiStore',
@@ -261,6 +284,7 @@ export const useUiStore = create<UiState>()(
         examElapsedBeforePause: state.examElapsedBeforePause,
         currentPhase: state.currentPhase,
         phaseLog: state.phaseLog,
+        todos: state.todos,
       }),
       onRehydrateStorage: () => (state: any) => {
         if (state?.theme === 'dark') {

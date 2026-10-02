@@ -110,3 +110,11 @@ test_*.local.sh
 *_local.*
 scratch/
 tmp/
+
+# ==========================================
+# EVIDENCIAS Y REPORTES C2 (OPSEC)
+# ==========================================
+LESSSO_Reporte_*.md
+*.pdf
+/evidencias/
+/reports/

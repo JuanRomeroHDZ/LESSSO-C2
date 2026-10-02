@@ -7,9 +7,18 @@ import {
   hasVaultPassword,
   clearVaultSession,
 } from './vaultSession'
-import type { VaultCred } from './scanStore'
 
-export type { VaultCred }
+// Independizamos el modelo de la Bóveda y lo expandimos
+export interface VaultCred {
+  id: string;
+  target: string;
+  type: 'hash' | 'password' | 'key';
+  username: string;
+  secret: string;
+  notes?: string;
+  status?: 'valid' | 'invalid' | 'unknown';
+  tags?: string[];
+}
 
 export interface VaultState {
   vaultCredentials: VaultCred[];
@@ -20,6 +29,7 @@ export interface VaultState {
   lockVault: () => void;
   setMasterPassword: (pwd: string) => Promise<void>;
   addVaultCred: (cred: Omit<VaultCred, 'id'>) => Promise<void>;
+  updateVaultCred: (id: string, patch: Partial<VaultCred>) => Promise<void>;
   removeVaultCred: (id: string) => Promise<void>;
 }
 
@@ -83,9 +93,24 @@ export const useVaultStore = create<VaultState>()(
         }
         const pwd = getVaultPassword()!;
         const newCreds = [
+          { ...cred, id: Date.now().toString(), status: cred.status || 'unknown', tags: cred.tags || [] },
           ...s.vaultCredentials,
-          { ...cred, id: Date.now().toString() },
         ];
+        const encrypted = await invoke<string>('encrypt_vault', {
+          data: JSON.stringify(newCreds),
+          password: pwd,
+        });
+        set({
+          vaultCredentials: newCreds,
+          encryptedVaultData: encrypted,
+        });
+      },
+
+      updateVaultCred: async (id, patch) => {
+        const s = get();
+        if (!hasVaultPassword()) throw new Error('Bóveda bloqueada');
+        const pwd = getVaultPassword()!;
+        const newCreds = s.vaultCredentials.map(c => c.id === id ? { ...c, ...patch } : c);
         const encrypted = await invoke<string>('encrypt_vault', {
           data: JSON.stringify(newCreds),
           password: pwd,

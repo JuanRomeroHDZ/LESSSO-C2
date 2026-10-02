@@ -1,7 +1,8 @@
 import { useCallback } from 'react'
 import { save, open } from '@tauri-apps/plugin-dialog'
 import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs'
-import type { HostInfo, VaultCred, PortInfo } from '../../../core/store/useScanStore'
+import type { HostInfo, PortInfo } from '../../../core/store/useScanStore'
+import type { VaultCred } from '../../../core/store/vaultStore' // <-- IMPORTACIÓN CORREGIDA
 import type { CveMatch, Severity } from '../utils/cve'
 import { useUiStore, type PhaseLogEntry } from '../../../core/store/uiStore'
 import {
@@ -364,7 +365,6 @@ function buildScopeMd(
   return md
 }
 
-
 function buildSignatureMd(signatures: any): string {
   const auditor = signatures.auditor;
   const reviewer = signatures.reviewer;
@@ -409,8 +409,6 @@ function buildSignatureMd(signatures: any): string {
   md += "---\n\n";
   return md;
 }
-
-
 
 function buildHashMd(hash: string): string {
   const algo = hashAlgorithmLabel(hash)

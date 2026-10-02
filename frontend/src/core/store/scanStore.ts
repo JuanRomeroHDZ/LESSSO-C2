@@ -27,7 +27,6 @@ export interface PortInfo {
   reason: string;
   service: string;
   version: string;
-  // --- Campos extendidos (Bloque 1) ---
   product?: string;
   extrainfo?: string;
   ostype?: string;
@@ -36,7 +35,6 @@ export interface PortInfo {
   cpe?: string[];
   servicefp?: string;
   scripts?: ScriptInfo[];
-  // --- Enriquecimiento CVE (Bloque 2) ---
   cves?: CveMatch[];
 }
 
@@ -52,7 +50,6 @@ export interface HostInfo {
   tags?: string[];
   notes?: string;
   scripts?: ScriptInfo[];
-  // --- Campos extendidos (Bloque 1) ---
   status_reason?: string;
   os_accuracy?: string;
   uptime_seconds?: number;
@@ -81,24 +78,15 @@ export interface SavedProfile {
   config: Partial<ScanState>;
 }
 
-export interface VaultCred {
-  id: string;
-  target: string;
-  type: 'hash' | 'password' | 'key';
-  username: string;
-  secret: string;
-  notes: string;
-}
-
 // ==========================================================
 // ESTADO DEL SCAN
 // ==========================================================
 
 interface ScanState {
-  target: string; scanType: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping'; timing: number;
+  target: string; scanType: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping' | 'ack' | 'window' | 'maimon'; timing: number;
   excludeTargets: string; topPorts: string; customPorts: string; fastMode: boolean;
   discoveryMode: string; minRate: string; maxRetries: string; networkInterface: string;
-  aggressiveMode: boolean; traceroute: boolean; reason: boolean; packetTrace: boolean; minParallelism: string; maxParallelism: string; dnsResolution: string; hostTimeout: string; scanDelay: string;
+  aggressiveMode: boolean; traceroute: boolean; reason: boolean; packetTrace: boolean; minParallelism: string; maxParallelism: string; ttl: string; dnsResolution: string; hostTimeout: string; scanDelay: string;
   useOSDetection: boolean; maxOsTries: string; useServiceDetection: boolean; versionIntensity: string;
   useIPv6: boolean; scanAllPorts: boolean; nseCategory: string; nseArgs: string; isVerbose: boolean;
   evasionFrag: boolean; evasionMTU: string; evasionDecoy: string; evasionMac: string; evasionSourcePort: string; evasionSpoofIp: string; badsum: boolean; randomizeHosts: boolean; zombieIp: string; ftpBounce: string;
@@ -109,15 +97,14 @@ interface ScanState {
   nmapOutputFormat: string; nmapOutputPrefix: string; nmapOutputDir: string;
   useRustScan: boolean;
 
-  setTarget: (t: string) => void; setScanType: (t: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping') => void; setTiming: (t: number) => void; setDiscoveryMode: (m: string) => void; setField: (f: keyof ScanState, v: any) => void;
+  setTarget: (t: string) => void; setScanType: (t: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping' | 'ack' | 'window' | 'maimon') => void;
+  setTiming: (t: number) => void; setDiscoveryMode: (m: string) => void; setField: (f: keyof ScanState, v: any) => void;
   toggleOSDetection: () => void; toggleServiceDetection: () => void; toggleIPv6: () => void; toggleAllPorts: () => void; toggleVerbose: () => void; setNseCategory: (c: string) => void; setNseArgs: (a: string) => void; setCommandString: (c: string) => void;
   applyProfile: (p: 'evasive' | 'balanced' | 'aggressive' | 'discovery' | 'fast') => void;
   saveCustomProfile: (name: string) => void; loadCustomProfile: (id: string) => void; deleteCustomProfile: (id: string) => void;
   syncCommandString: () => void; setIsScanning: (s: boolean) => void; appendOutput: (l: string) => void; clearOutput: () => void; clearHistory: () => void; setParsedData: (d: HostInfo[]) => void; updateHost: (ip: string, u: Partial<HostInfo>) => void; setProgressText: (t: string) => void; setScanDuration: (d: string) => void; getNmapArgs: () => string[]; cancelScan: () => Promise<void>; notifyCompletion: () => Promise<void>; playAudioAlert: () => void; importWorkspace: (data: HostInfo[]) => void; copyMasterConfig: () => void;
-  // --- Enriquecimiento CVE (Bloque 2) ---
   setPortCves: (ip: string, portid: string, protocol: string, cves: CveMatch[]) => void;
   setHostCves: (ip: string, mapping: Record<string, CveMatch[]>) => void;
-  // --- Saneamiento (defensa contra localStorage corrupto) ---
   sanitizeParsedData: () => void;
 }
 
@@ -129,20 +116,6 @@ function normalizeTarget(raw: string): string {
   return raw.trim().split(/\s+/).filter(Boolean).join(' ');
 }
 
-/**
- * Sanea `parsedData` / `historyData` para que SIEMPRE sea un array
- * de hosts con `ports` array.
- *
- * ¿Por qué?
- * ---------
- * Si localStorage trae basura (versión antigua del esquema, un
- * workspace importado mal formado, un `{}` por un bug previo...),
- * `parsedData.map(...)` explota. Esta función garantiza la forma.
- *
- * - No valida campos a fondo: solo estructura mínima.
- * - No filtra hosts sin `ip` (algunos pueden tenerla vacía pero
- *   seguir siendo válidos tras el parseo).
- */
 function sanitizeHosts(input: unknown): HostInfo[] {
   if (!Array.isArray(input)) return []
   return input
@@ -165,6 +138,9 @@ function buildNmapArgs(s: ScanState): string[] {
   else if (s.scanType === 'udp') args.push('-sU');
   else if (s.scanType === 'sctp') args.push('-sY');
   else if (s.scanType === 'ping') args.push('-sn');
+  else if (s.scanType === 'ack') args.push('-sA');
+  else if (s.scanType === 'window') args.push('-sW');
+  else if (s.scanType === 'maimon') args.push('-sM');
 
   args.push(`-T${s.timing}`);
 
@@ -187,6 +163,7 @@ function buildNmapArgs(s: ScanState): string[] {
   if (s.maxHostgroup) args.push('--max-hostgroup', s.maxHostgroup);
   if (s.hostTimeout) args.push('--host-timeout', s.hostTimeout);
   if (s.scanDelay) args.push('--scan-delay', s.scanDelay);
+  if (s.ttl) args.push('--ttl', s.ttl);
 
   if (s.networkInterface) args.push('-e', s.networkInterface);
   if (s.aggressiveMode) args.push('-A');
@@ -245,7 +222,7 @@ function buildCommandString(s: ScanState, nmapArgs: string[]): string {
 export const useScanStoreLocal = create<ScanState>()(
   persist(
     (set, get) => ({
-      target: '', scanType: 'syn', timing: 4, excludeTargets: '', topPorts: '', customPorts: '', fastMode: false, discoveryMode: '', minRate: '', maxRetries: '', networkInterface: '', aggressiveMode: false, traceroute: false, reason: false, packetTrace: false, minParallelism: '', maxParallelism: '', dnsResolution: '', hostTimeout: '', scanDelay: '', useOSDetection: false, maxOsTries: '', useServiceDetection: false, versionIntensity: '', useIPv6: false, scanAllPorts: false, nseCategory: '', nseArgs: '', isVerbose: false, evasionFrag: false, evasionMTU: '', evasionDecoy: '', evasionMac: '', evasionSourcePort: '', evasionSpoofIp: '', badsum: false, randomizeHosts: false, zombieIp: '', ftpBounce: '', customTcpFlags: '', proxies: '', customDns: '', dataString: '', dataHex: '', dataLength: '',
+      target: '', scanType: 'syn', timing: 4, excludeTargets: '', topPorts: '', customPorts: '', fastMode: false, discoveryMode: '', minRate: '', maxRetries: '', networkInterface: '', aggressiveMode: false, traceroute: false, reason: false, packetTrace: false, minParallelism: '', maxParallelism: '', ttl: '', dnsResolution: '', hostTimeout: '', scanDelay: '', useOSDetection: false, maxOsTries: '', useServiceDetection: false, versionIntensity: '', useIPv6: false, scanAllPorts: false, nseCategory: '', nseArgs: '', isVerbose: false, evasionFrag: false, evasionMTU: '', evasionDecoy: '', evasionMac: '', evasionSourcePort: '', evasionSpoofIp: '', badsum: false, randomizeHosts: false, zombieIp: '', ftpBounce: '', customTcpFlags: '', proxies: '', customDns: '', dataString: '', dataHex: '', dataLength: '',
       commandString: 'nmap -sS -T4', isScanning: false, output: [], parsedData: [], historyData: [], progressText: '', scanDuration: '0s', savedProfiles: [], autoScanInterval: 0,
       onlyOpenPorts: false, osScanGuess: false, scriptDefault: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'lessso_scan', nmapOutputDir: '',
       useRustScan: false,
@@ -265,7 +242,7 @@ export const useScanStoreLocal = create<ScanState>()(
       setCommandString: (c) => set({ commandString: c }),
 
       applyProfile: (p) => {
-        set({ useOSDetection: false, useServiceDetection: false, scanAllPorts: false, fastMode: false, topPorts: '', customPorts: '', nseCategory: '', evasionFrag: false, evasionDecoy: '', minRate: '', maxRetries: '', aggressiveMode: false, packetTrace: false, badsum: false, zombieIp: '', ftpBounce: '', hostTimeout: '', scanDelay: '', customTcpFlags: '', dataLength: '', proxies: '', onlyOpenPorts: false, scriptDefault: false, osScanGuess: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'lessso_scan', nmapOutputDir: '' });
+        set({ useOSDetection: false, useServiceDetection: false, scanAllPorts: false, fastMode: false, topPorts: '', customPorts: '', nseCategory: '', evasionFrag: false, evasionDecoy: '', minRate: '', maxRetries: '', aggressiveMode: false, packetTrace: false, badsum: false, zombieIp: '', ftpBounce: '', hostTimeout: '', scanDelay: '', customTcpFlags: '', dataLength: '', proxies: '', onlyOpenPorts: false, scriptDefault: false, osScanGuess: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'lessso_scan', nmapOutputDir: '', ttl: '' });
         switch (p) {
           case 'evasive': set({ scanType: 'syn', timing: 1, isVerbose: false, evasionFrag: true, evasionDecoy: 'ME,10.0.0.1', scanDelay: '500ms', dataLength: '25' }); break;
           case 'balanced': set({ scanType: 'syn', timing: 4, useOSDetection: true, useServiceDetection: true, scriptDefault: true }); break;
@@ -293,6 +270,7 @@ export const useScanStoreLocal = create<ScanState>()(
             osScanGuess: s.osScanGuess, minHostgroup: s.minHostgroup,
             maxHostgroup: s.maxHostgroup, nmapOutputFormat: s.nmapOutputFormat,
             nmapOutputPrefix: s.nmapOutputPrefix, nmapOutputDir: s.nmapOutputDir,
+            ttl: s.ttl, minParallelism: s.minParallelism, maxParallelism: s.maxParallelism
           },
         };
         set((state) => ({ savedProfiles: [...state.savedProfiles, newProfile] }));
@@ -317,9 +295,6 @@ export const useScanStoreLocal = create<ScanState>()(
       clearOutput: () => set({ output: [], progressText: '', scanDuration: '0s' }),
       clearHistory: () => set({ historyData: [], parsedData: [] }),
 
-      // ------------------------------------------------------
-      // SANEADOS: estas tres son las que evitan el crash
-      // ------------------------------------------------------
       setParsedData: (d) =>
         set((state) => ({
           historyData: sanitizeHosts(state.parsedData),
@@ -345,7 +320,6 @@ export const useScanStoreLocal = create<ScanState>()(
       setProgressText: (t) => set({ progressText: t }),
       setScanDuration: (d) => set({ scanDuration: d }),
 
-      // --- Enriquecimiento CVE ---
       setPortCves: (ip, portid, protocol, cves) =>
         set((s) => ({
           parsedData: sanitizeHosts(s.parsedData).map((h) =>
@@ -388,11 +362,8 @@ export const useScanStoreLocal = create<ScanState>()(
           await invoke('cancel_nmap');
           set({ isScanning: false, progressText: '' });
           get().appendOutput('\n[WARN] DETENIDO POR EL USUARIO.');
-        } catch {
-		// silencioso si el navegador bloquea el audio no se rompe la app
-        }
+        } catch { }
       },
-
 
       playAudioAlert: () => {
         const { soundEnabled, volume } = useUiStore.getState();
@@ -409,12 +380,8 @@ export const useScanStoreLocal = create<ScanState>()(
           gain.gain.setValueAtTime(volume / 100, ctx.currentTime);
           osc.start();
           osc.stop(ctx.currentTime + 0.3);
-        } catch {
-          // Silencioso: si el navegador bloquea el audio, no rompemos la app.
-        }
+        } catch { }
       },
-
-
 
       notifyCompletion: async () => {
         get().playAudioAlert();
@@ -460,12 +427,6 @@ export const useScanStoreLocal = create<ScanState>()(
         historyData: state.historyData,
         savedProfiles: state.savedProfiles,
       }),
-      // ------------------------------------------------------
-      // SANEAMIENTO AL CARGAR DE LOCALSTORAGE
-      // ------------------------------------------------------
-      // Si localStorage trae basura de una versión previa, la
-      // corregimos aquí. Evita el crash `parsedData.map is not
-      // a function` en el primer render.
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         if (!Array.isArray(state.parsedData)) state.parsedData = [];

@@ -7,8 +7,9 @@ import remarkGfm from 'remark-gfm';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { useScanStore } from '../../core/store/useScanStore';
 import { useUiStore, type ExamPhase } from '../../core/store/uiStore';
-import { Bold, Italic, Code, Heading1, Heading2, List, ListOrdered, Quote, Table as TableIcon, Minus, Link, Image, Edit3, Columns, Eye, Download, ClipboardPaste, FileTerminal, Target, Globe, KeyRound, ChevronDown, ShieldAlert } from 'lucide-react';
+import { Bold, Italic, Code, Heading1, Heading2, List, ListOrdered, Quote, Table as TableIcon, Minus, Link, Image, Edit3, Columns, Eye, Download, ClipboardPaste, FileTerminal, Target, Globe, KeyRound, ChevronDown, ShieldAlert, Images, X } from 'lucide-react';
 import { ExamTimer } from '../../components/layout/ExamTimer';
+import { EvidenceGallery } from './components/EvidenceGallery';
 
 const ALLOWED_URL_PROTOCOLS = ['http', 'https', 'mailto', 'asset', 'tauri'];
 const sanitizeSchema = {
@@ -75,12 +76,25 @@ export function NotesPanel() {
   const [saveStatus, setSaveStatus] = useState(autoSaveEnabled ? 'Auto-Log Activo' : 'Guardado Manual');
   const [previewMode, setPreviewMode] = useState<'split' | 'edit' | 'preview'>('split');
   const [showPhaseLog, setShowPhaseLog] = useState(false);
+  
+  const [showGallery, setShowGallery] = useState(false);
+  const [selectedImg, setSelectedImg] = useState<string | null>(null);
 
   const notesRef = useRef(redTeamNotes);
   const panelRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { notesRef.current = redTeamNotes; }, [redTeamNotes]);
+
+  const extractedImages = useMemo(() => {
+    const regex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+    const images: { alt: string, src: string }[] = [];
+    let match;
+    while ((match = regex.exec(redTeamNotes)) !== null) {
+      images.push({ alt: match[1], src: match[2] });
+    }
+    return images;
+  }, [redTeamNotes]);
 
   const handleChange = (val: string) => {
     setRedTeamNotes(val); setSaveStatus('Guardando...');
@@ -173,7 +187,7 @@ export function NotesPanel() {
 
   const markdownComponents = useMemo(() => ({
     a: ({ node: _node, ...props }: any) => <a {...props} target="_blank" rel="noopener noreferrer nofollow" className="text-rose-600 dark:text-rose-500 hover:text-rose-400 underline decoration-rose-500/30 underline-offset-2" />,
-    img: ({ node: _node, ...props }: any) => <img {...props} loading="lazy" referrerPolicy="no-referrer" className="rounded-lg border border-slate-700/50 shadow-md my-4 max-w-full h-auto" />,
+    img: ({ node: _node, ...props }: any) => <img {...props} loading="lazy" referrerPolicy="no-referrer" className="rounded-lg border border-slate-700/50 shadow-md my-4 max-w-full h-auto cursor-zoom-in hover:border-rose-500/50 transition-colors" onClick={() => setSelectedImg(props.src)} />,
     code: ({ node: _node, ...props }: any) => <code {...props} className="bg-slate-200 dark:bg-slate-800/80 text-rose-700 dark:text-rose-300 font-mono px-1.5 py-0.5 rounded text-[11px]" />,
     pre: ({ node: _node, ...props }: any) => <pre {...props} className="bg-slate-950 border border-slate-800 p-4 rounded-xl shadow-inner custom-scrollbar text-[11px] font-mono leading-relaxed" />,
     h1: ({ node: _node, ...props }: any) => <h1 {...props} className="text-xl font-black uppercase tracking-wider text-slate-200 mt-6 mb-4 border-b border-rose-900/50 pb-2" />,
@@ -244,6 +258,11 @@ export function NotesPanel() {
 
         <div className="flex flex-wrap items-center gap-3">
           <span className={`text-[9px] font-bold uppercase tracking-wider ${autoSaveEnabled ? 'text-slate-500' : 'text-orange-500 animate-pulse'}`}>{saveStatus}</span>
+          
+          <button onClick={() => setShowGallery(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20 text-[10px] font-bold uppercase tracking-wider rounded-md hover:bg-indigo-500/20 transition-colors">
+            <Images size={12}/> Galería ({extractedImages.length})
+          </button>
+
           <button onClick={pasteAndInsertImage} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-bold uppercase rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"><ClipboardPaste size={12}/> Pegar (Ctrl+V)</button>
           
           <div className="relative group">
@@ -310,6 +329,24 @@ export function NotesPanel() {
           </div>
         )}
       </div>
+
+      {showGallery && (
+        <EvidenceGallery 
+          images={extractedImages} 
+          onClose={() => setShowGallery(false)} 
+          onSelectImage={(src) => setSelectedImg(src)} 
+        />
+      )}
+
+      {/* LIGHTBOX (VISOR PANTALLA COMPLETA) */}
+      {selectedImg && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/95 flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200 backdrop-blur-sm" onClick={() => setSelectedImg(null)}>
+          <button className="absolute top-6 right-6 text-slate-300 hover:text-white hover:bg-rose-500 transition-colors p-2 bg-white/10 rounded-xl outline-none" onClick={() => setSelectedImg(null)}>
+            <X size={24} />
+          </button>
+          <img src={selectedImg} className="max-w-full max-h-full object-contain rounded-lg shadow-2xl ring-1 ring-white/10" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }
