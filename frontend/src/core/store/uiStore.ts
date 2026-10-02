@@ -37,7 +37,7 @@ export interface TodoItem {
 }
 
 export const EXAM_PHASES: ExamPhase[] = ['recon', 'enum', 'exploit', 'privesc', 'loot']
-export const DEFAULT_EXAM_DURATION_MS = 8 * 60 * 60 * 1000 // 8h
+export const DEFAULT_EXAM_DURATION_MS = 8 * 60 * 60 - 1000 // 8h
 
 // ==========================================================
 // ESTADO
@@ -52,7 +52,10 @@ export interface UiState {
   isTerminalOpen: boolean
   activeWorkspace: string
   quickNotesOpen: boolean
-  todoPanelOpen: boolean // NUEVO
+  todoPanelOpen: boolean
+
+  // Integraciones (BYOK)
+  nistApiKey: string
 
   // Reporte
   cveAutoEnrich: boolean
@@ -74,7 +77,7 @@ export interface UiState {
   examElapsedBeforePause: number     
   currentPhase: ExamPhase
   phaseLog: PhaseLogEntry[]
-  todos: TodoItem[] // NUEVO
+  todos: TodoItem[]
 
   // Acciones UI
   toggleTheme: () => void
@@ -85,7 +88,9 @@ export interface UiState {
   setIsTerminalOpen: (v: boolean) => void
   setActiveWorkspace: (workspace: string) => void
   toggleQuickNotes: () => void
-  toggleTodoPanel: () => void // NUEVO
+  toggleTodoPanel: () => void
+
+  setNistApiKey: (key: string) => void
 
   setCveAutoEnrich: (v: boolean) => void
   toggleCveAutoEnrich: () => void
@@ -109,10 +114,10 @@ export interface UiState {
   setPhase: (phase: ExamPhase) => void
   getRemainingMs: () => number
 
-  addTodo: (text: string) => void // NUEVO
-  toggleTodo: (id: string) => void // NUEVO
-  removeTodo: (id: string) => void // NUEVO
-  clearTodos: () => void // NUEVO
+  addTodo: (text: string) => void
+  toggleTodo: (id: string) => void
+  removeTodo: (id: string) => void
+  clearTodos: () => void
 }
 
 // ==========================================================
@@ -131,6 +136,9 @@ export const useUiStore = create<UiState>()(
       activeWorkspace: 'scanner',
       quickNotesOpen: false,
       todoPanelOpen: false,
+
+      // ---------- Integraciones ----------
+      nistApiKey: '',
 
       // ---------- Reporte ----------
       cveAutoEnrich: true,
@@ -169,6 +177,8 @@ export const useUiStore = create<UiState>()(
       toggleQuickNotes: () => set((s: UiState) => ({ quickNotesOpen: !s.quickNotesOpen })),
       toggleTodoPanel: () => set((s: UiState) => ({ todoPanelOpen: !s.todoPanelOpen })),
 
+      setNistApiKey: (key) => set({ nistApiKey: key }),
+
       setCveAutoEnrich: (v) => set({ cveAutoEnrich: v }),
       toggleCveAutoEnrich: () => set((s: UiState) => ({ cveAutoEnrich: !s.cveAutoEnrich })),
 
@@ -186,7 +196,7 @@ export const useUiStore = create<UiState>()(
           }
         })),
       
-      clearSignature: (type) => 
+      clearSignature: (type) =>  
         set((s: UiState) => ({
           signatures: {
             ...s.signatures,
@@ -274,6 +284,7 @@ export const useUiStore = create<UiState>()(
         compactMode: state.compactMode,
         volume: state.volume,
         soundEnabled: state.soundEnabled,
+        nistApiKey: state.nistApiKey,
         cveAutoEnrich: state.cveAutoEnrich,
         includeCvss: state.includeCvss,
         includeMetrics: state.includeMetrics,

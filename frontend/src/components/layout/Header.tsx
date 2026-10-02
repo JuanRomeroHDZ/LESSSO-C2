@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useScanStoreLocal } from '../../core/store/scanStore';
 import { useUiStore } from '../../core/store/uiStore';
-import { Play, Square, Copy, Moon, Sun, Zap, Crosshair, Volume2, Settings } from 'lucide-react';
+import { Play, Square, Copy, Moon, Sun, Zap, Crosshair, Volume2, Settings, Lock, Trash2 } from 'lucide-react';
 import { ExamTimer } from './ExamTimer';
 
 export function Header() {
@@ -12,7 +12,7 @@ export function Header() {
     cancelScan, appendOutput, getNmapArgs
   } = useScanStoreLocal();
   
-  const { theme, toggleTheme, setIsTerminalOpen, volume, setVolume } = useUiStore();
+  const { theme, toggleTheme, setIsTerminalOpen, volume, setVolume, nistApiKey, setNistApiKey } = useUiStore();
 
   const scanTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleScanRef = useRef<() => Promise<void>>(async () => {});
@@ -122,15 +122,15 @@ export function Header() {
         <div className="h-5 w-px bg-slate-200 dark:bg-slate-800 mx-1 shrink-0"></div>
 
         <div className="relative">
-          <button 
-            onClick={() => setConfigOpen(!configOpen)} 
+          <button  
+            onClick={() => setConfigOpen(!configOpen)}  
             className={`p-2 rounded-md transition-colors ${configOpen ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-white' : 'text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/50'}`}
           >
             <Settings size={16} />
           </button>
 
           {configOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl p-3 z-50 flex flex-col gap-3">
+            <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl p-3 z-50 flex flex-col gap-3">
               
               <label className="flex items-center justify-between cursor-pointer bg-amber-50 dark:bg-amber-500/10 px-3 py-2 rounded-md border border-amber-200 dark:border-amber-500/20 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition-colors">
                 <span className="text-[11px] font-bold uppercase text-amber-700 dark:text-amber-500 flex items-center gap-1.5">
@@ -150,7 +150,38 @@ export function Header() {
                 />
               </div>
 
-              <div className="border-t border-slate-100 dark:border-slate-800/80 pt-2 flex justify-between gap-2">
+              <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3 pb-1 mt-1 px-1">
+                <label className="text-[9px] font-bold uppercase text-slate-500 flex items-center gap-1 mb-2">
+                  <Lock size={10} /> NIST API Key (NVD)
+                </label>
+                {nistApiKey ? (
+                  <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 px-2 py-1.5 rounded-md shadow-sm">
+                    <span className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400 font-bold tracking-widest">
+                      ••••••••••••••••
+                    </span>
+                    <button 
+                      onClick={() => { if(confirm('¿Estás seguro de eliminar la API Key de NIST de tu equipo? (Se perderá permanentemente)')) setNistApiKey('') }} 
+                      className="text-rose-500 hover:text-rose-600 dark:hover:text-rose-400 transition-colors p-1 rounded-sm hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                      title="Eliminar llave de integración"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <input 
+                    type="password" 
+                    placeholder="Pega tu llave aquí..." 
+                    onBlur={(e) => { if(e.target.value.trim()) setNistApiKey(e.target.value.trim()) }}
+                    onKeyDown={(e) => { if(e.key === 'Enter' && e.currentTarget.value.trim()) setNistApiKey(e.currentTarget.value.trim()) }}
+                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1.5 text-[10px] font-mono outline-none focus:border-teal-500 transition-colors placeholder:text-slate-400 shadow-sm"
+                  />
+                )}
+                <p className="text-[8px] text-slate-400 mt-1.5 leading-tight">
+                  Se guarda en almacenamiento local seguro. Aumenta el rate limit a 50 peticiones/30s.
+                </p>
+              </div>
+
+              <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3 flex justify-between gap-2 mt-1">
                 <button onClick={copyMasterConfig} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors">
                   <Copy size={12} /> Copiar
                 </button>

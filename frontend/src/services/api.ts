@@ -7,6 +7,8 @@
 // - JSON in / JSON out.
 // ==========================================================
 
+import { useUiStore } from '../core/store/uiStore';
+
 const DEFAULT_BASE = 'http://127.0.0.1:8001'
 const DEFAULT_TIMEOUT_MS = 20000
 
@@ -66,6 +68,13 @@ async function request<T>(
         ...options.headers,
       },
     }
+    
+    // Inyectar API Key de NIST si el usuario la ha configurado en la Bóveda de Ajustes
+    const nistKey = useUiStore.getState().nistApiKey;
+    if (nistKey) {
+      (fetchInit.headers as any)['x-nist-api-key'] = nistKey;
+    }
+
     // `body` solo es válido en métodos con payload (no GET/HEAD).
     if (body !== undefined && method !== 'GET') {
       fetchInit.body = JSON.stringify(body)
