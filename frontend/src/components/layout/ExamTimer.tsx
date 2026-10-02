@@ -16,7 +16,8 @@ function remainingMs(): number {
   return useUiStore.getState().getRemainingMs()
 }
 
-export function ExamTimer() {
+// NUEVO: Aceptamos una prop 'silent' para desactivar notificaciones en instancias secundarias
+export function ExamTimer({ silent = false }: { silent?: boolean } = {}) {
   const examStartAt = useUiStore((s) => s.examStartAt)
   const examRunning = useUiStore((s) => s.examRunning)
   const examDurationMs = useUiStore((s) => s.examDurationMs)
@@ -50,6 +51,9 @@ export function ExamTimer() {
   }, [examStartAt])
 
   useEffect(() => {
+    // Si es un reloj secundario (silent), no disparamos notificaciones
+    if (silent) return; 
+    
     if (!examStartAt || !examRunning) return
     if (typeof Notification === 'undefined') return
     if (Notification.permission !== 'granted') return
@@ -77,13 +81,13 @@ export function ExamTimer() {
       notifiedFiveMinRef.current = true
       new Notification('LESSSO C2 — Examen', { body: '¡Quedan 5 minutos!' })
     }
-  }, [remaining, examStartAt, examRunning, examDurationMs])
+  }, [remaining, examStartAt, examRunning, examDurationMs, silent])
 
   useEffect(() => {
-    if (examStartAt && typeof Notification !== 'undefined' && Notification.permission === 'default') {
+    if (!silent && examStartAt && typeof Notification !== 'undefined' && Notification.permission === 'default') {
       Notification.requestPermission().catch(() => {})
     }
-  }, [examStartAt])
+  }, [examStartAt, silent])
 
   const pct = examDurationMs > 0 ? remaining / examDurationMs : 0
   const colorClass =
@@ -184,3 +188,4 @@ export function ExamTimer() {
     </div>
   )
 }
+

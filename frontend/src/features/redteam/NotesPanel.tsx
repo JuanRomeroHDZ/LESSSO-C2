@@ -8,6 +8,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import { useScanStore } from '../../core/store/useScanStore';
 import { useUiStore, type ExamPhase } from '../../core/store/uiStore';
 import { Bold, Italic, Code, Heading1, Heading2, List, ListOrdered, Quote, Table as TableIcon, Minus, Link, Image, Edit3, Columns, Eye, Download, ClipboardPaste, FileTerminal, Target, Globe, KeyRound, ChevronDown, ShieldAlert } from 'lucide-react';
+import { ExamTimer } from '../../components/layout/ExamTimer';
 
 const ALLOWED_URL_PROTOCOLS = ['http', 'https', 'mailto', 'asset', 'tauri'];
 const sanitizeSchema = {
@@ -34,7 +35,7 @@ function sanitizeUrl(url: string | undefined): string | undefined {
 
 const PHASES: ExamPhase[] = ['recon', 'enum', 'exploit', 'privesc', 'loot'];
 const PHASE_COLORS: Record<ExamPhase, string> = {
-  recon: 'bg-sky-500', enum: 'bg-indigo-500', exploit: 'bg-rose-500', privesc: 'bg-amber-500', loot: 'bg-teal-500', done: 'bg-slate-500',
+  recon: 'bg-sky-500', enum: 'bg-indigo-500', exploit: 'bg-rose-600', privesc: 'bg-amber-500', loot: 'bg-teal-500', done: 'bg-slate-500',
 };
 
 interface TextareaEdit { text: string; selectionStart: number; selectionEnd: number; }
@@ -171,19 +172,27 @@ export function NotesPanel() {
   };
 
   const markdownComponents = useMemo(() => ({
-    a: ({ node: _node, ...props }: any) => <a {...props} target="_blank" rel="noopener noreferrer nofollow" className="text-teal-500 hover:text-teal-400 underline decoration-teal-500/30 underline-offset-2" />,
+    a: ({ node: _node, ...props }: any) => <a {...props} target="_blank" rel="noopener noreferrer nofollow" className="text-rose-600 dark:text-rose-500 hover:text-rose-400 underline decoration-rose-500/30 underline-offset-2" />,
     img: ({ node: _node, ...props }: any) => <img {...props} loading="lazy" referrerPolicy="no-referrer" className="rounded-lg border border-slate-700/50 shadow-md my-4 max-w-full h-auto" />,
-    code: ({ node: _node, ...props }: any) => <code {...props} className="bg-slate-800/80 text-teal-300 font-mono px-1.5 py-0.5 rounded text-[11px]" />,
-    pre: ({ node: _node, ...props }: any) => <pre {...props} className="bg-[#020617] border border-slate-800 p-4 rounded-xl shadow-inner custom-scrollbar text-[11px] font-mono leading-relaxed" />,
-    h1: ({ node: _node, ...props }: any) => <h1 {...props} className="text-xl font-black uppercase tracking-wider text-slate-200 mt-6 mb-4 border-b border-slate-800 pb-2" />,
+    code: ({ node: _node, ...props }: any) => <code {...props} className="bg-slate-200 dark:bg-slate-800/80 text-rose-700 dark:text-rose-300 font-mono px-1.5 py-0.5 rounded text-[11px]" />,
+    pre: ({ node: _node, ...props }: any) => <pre {...props} className="bg-slate-950 border border-slate-800 p-4 rounded-xl shadow-inner custom-scrollbar text-[11px] font-mono leading-relaxed" />,
+    h1: ({ node: _node, ...props }: any) => <h1 {...props} className="text-xl font-black uppercase tracking-wider text-slate-200 mt-6 mb-4 border-b border-rose-900/50 pb-2" />,
     h2: ({ node: _node, ...props }: any) => <h2 {...props} className="text-lg font-bold text-slate-300 mt-5 mb-3" />,
   }), []);
 
   return (
-    <div ref={panelRef} className="flex flex-col h-full min-h-[600px] flex-1 bg-slate-50 dark:bg-[#0b1120] rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden" data-color-mode={theme}>
+    <div ref={panelRef} className="flex flex-col h-full min-h-[600px] flex-1 bg-slate-50 dark:bg-[#050505] bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] dark:bg-[radial-gradient(#262626_1px,transparent_1px)] [background-size:20px_20px] rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden relative" data-color-mode={theme}>
       
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800;900&display=swap');
+        .font-poppins { font-family: 'Poppins', sans-serif; }
+        .markdown-preview h1, .markdown-preview h2, .markdown-preview h3 { font-family: 'Poppins', sans-serif; letter-spacing: -0.02em; }
+        .dark .markdown-preview h1, .dark .markdown-preview h2, .dark .markdown-preview h3 { color: #e11d48; } 
+        .markdown-preview h1 { border-bottom: 2px solid #881337; padding-bottom: 6px; }
+      `}</style>
+
       {/* EXAM PHASES */}
-      <div className="flex flex-wrap items-center gap-3 px-5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-[#060a13] shrink-0">
+      <div className="flex flex-wrap items-center gap-3 px-5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md shrink-0">
         <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-1.5"><Target size={12}/> Fases (Kill Chain)</span>
         <div className="flex flex-wrap gap-1">
           {PHASES.map((p) => {
@@ -221,55 +230,66 @@ export function NotesPanel() {
       )}
 
       {/* HEADER & TEMPLATES */}
-      <div className="flex flex-wrap justify-between items-center gap-3 px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] shrink-0">
-        <h2 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2">
-        <FileTerminal size={16} className="text-teal-500"/> Bitácora de Auditoría</h2>
+      <div className="flex flex-wrap justify-between items-center gap-3 px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md shrink-0 relative z-10 shadow-sm">
+        
+        <div className="flex items-center gap-4">
+          <h2 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2 font-poppins">
+            <FileTerminal size={16} className="text-rose-600 dark:text-rose-500"/> Bitácora Táctica
+          </h2>
+          <div className="hidden sm:block h-6 w-px bg-slate-200 dark:bg-slate-800"></div>
+          <div className="h-8">
+            <ExamTimer silent={true} />
+          </div>
+        </div>
+
         <div className="flex flex-wrap items-center gap-3">
           <span className={`text-[9px] font-bold uppercase tracking-wider ${autoSaveEnabled ? 'text-slate-500' : 'text-orange-500 animate-pulse'}`}>{saveStatus}</span>
-          <button onClick={pasteAndInsertImage} className="flex items-center gap-1.5 px-3 py-1.5 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400 border border-fuchsia-500/20 text-[10px] font-bold uppercase rounded-md hover:bg-fuchsia-500/20 transition-colors"><ClipboardPaste size={12}/> Pegar (Ctrl+V)</button>
+          <button onClick={pasteAndInsertImage} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-bold uppercase rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"><ClipboardPaste size={12}/> Pegar (Ctrl+V)</button>
           
           <div className="relative group">
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-bold uppercase rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Plantillas <ChevronDown size={12}/></button>
-            <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl hidden group-hover:block z-50 overflow-hidden">
-              <button onClick={() => insertTemplate('cve')} className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border-b border-slate-800/50 flex items-center gap-2"><ShieldAlert size={12} className="text-rose-500"/> Hallazgo CVE</button>
-              <button onClick={() => insertTemplate('web')} className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border-b border-slate-800/50 flex items-center gap-2"><Globe size={12} className="text-sky-500"/> Enum. Web</button>
-              <button onClick={() => insertTemplate('privesc')} className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2"><KeyRound size={12} className="text-amber-500"/> PrivEsc (Root)</button>
+            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-bold uppercase rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Plantillas <ChevronDown size={12}/></button>
+            <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-[#121212] border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl hidden group-hover:block z-50 overflow-hidden">
+              <button onClick={() => insertTemplate('cve')} className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors border-b border-slate-100 dark:border-slate-800/50 flex items-center gap-2"><ShieldAlert size={12} className="text-rose-500"/> Hallazgo CVE</button>
+              <button onClick={() => insertTemplate('web')} className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors border-b border-slate-100 dark:border-slate-800/50 flex items-center gap-2"><Globe size={12} className="text-sky-500"/> Enum. Web</button>
+              <button onClick={() => insertTemplate('privesc')} className="w-full text-left px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors flex items-center gap-2"><KeyRound size={12} className="text-amber-500"/> PrivEsc (Root)</button>
             </div>
           </div>
 
-          <button onClick={downloadNotes} className="flex items-center gap-1.5 px-4 py-1.5 bg-teal-600 text-white text-[10px] font-bold uppercase tracking-widest rounded-md hover:bg-teal-500 transition-colors shadow-md"><Download size={12}/> Exportar MD</button>
-        </div>
-      </div>
-
-      {/* MARKDOWN TOOLBAR */}
-      <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#060a13] shrink-0">
-        <ToolbarButton onClick={cmdBold} title="Negrita (Ctrl+B)"><Bold size={14}/></ToolbarButton>
-        <ToolbarButton onClick={cmdItalic} title="Cursiva (Ctrl+I)"><Italic size={14}/></ToolbarButton>
-        <ToolbarButton onClick={cmdCode} title="Código inline"><Code size={14}/></ToolbarButton>
-        <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
-        <ToolbarButton onClick={cmdH1} title="Título 1"><Heading1 size={14}/></ToolbarButton>
-        <ToolbarButton onClick={cmdH2} title="Título 2"><Heading2 size={14}/></ToolbarButton>
-        <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
-        <ToolbarButton onClick={cmdList} title="Lista"><List size={14}/></ToolbarButton>
-        <ToolbarButton onClick={cmdOrderedList} title="Lista Num."><ListOrdered size={14}/></ToolbarButton>
-        <ToolbarButton onClick={cmdQuote} title="Cita"><Quote size={14}/></ToolbarButton>
-        <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
-        <ToolbarButton onClick={cmdCodeBlock} title="Bloque de código"><FileTerminal size={14}/></ToolbarButton>
-        <ToolbarButton onClick={cmdTable} title="Tabla"><TableIcon size={14}/></ToolbarButton>
-        <ToolbarButton onClick={cmdHr} title="Separador"><Minus size={14}/></ToolbarButton>
-        <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
-        <ToolbarButton onClick={cmdLink} title="Enlace"><Link size={14}/></ToolbarButton>
-        <ToolbarButton onClick={cmdImage} title="Imagen"><Image size={14}/></ToolbarButton>
-
-        <div className="ml-auto flex gap-1.5 bg-slate-200 dark:bg-slate-900 p-1 rounded-lg border border-slate-300 dark:border-slate-800">
-          <ToolbarButton onClick={() => setPreviewMode('edit')} active={previewMode === 'edit'} title="Solo edición"><Edit3 size={12}/></ToolbarButton>
-          <ToolbarButton onClick={() => setPreviewMode('split')} active={previewMode === 'split'} title="Dividido"><Columns size={12}/></ToolbarButton>
-          <ToolbarButton onClick={() => setPreviewMode('preview')} active={previewMode === 'preview'} title="Solo vista"><Eye size={12}/></ToolbarButton>
+          <button onClick={downloadNotes} className="flex items-center gap-1.5 px-4 py-1.5 bg-rose-700 text-white text-[10px] font-bold uppercase tracking-widest rounded-md hover:bg-rose-600 transition-colors shadow-md"><Download size={12}/> Exportar MD</button>
         </div>
       </div>
 
       {/* EDITOR AREA */}
-      <div className="flex-1 min-h-0 flex" onPasteCapture={handlePasteCapture}>
+      <div className="flex-1 min-h-0 flex relative" onPasteCapture={handlePasteCapture}>
+        
+        {/* FLOATING TOOLBAR MINIMALISTA */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-3 py-2 bg-white/90 dark:bg-[#121212]/90 border border-slate-200 dark:border-slate-700 rounded-full shadow-2xl backdrop-blur-md">
+          <ToolbarButton onClick={cmdBold} title="Negrita (Ctrl+B)"><Bold size={14}/></ToolbarButton>
+          <ToolbarButton onClick={cmdItalic} title="Cursiva (Ctrl+I)"><Italic size={14}/></ToolbarButton>
+          <ToolbarButton onClick={cmdCode} title="Código inline"><Code size={14}/></ToolbarButton>
+          <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1.5" />
+          <ToolbarButton onClick={cmdH1} title="Título 1"><Heading1 size={14}/></ToolbarButton>
+          <ToolbarButton onClick={cmdH2} title="Título 2"><Heading2 size={14}/></ToolbarButton>
+          <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1.5" />
+          <ToolbarButton onClick={cmdList} title="Lista"><List size={14}/></ToolbarButton>
+          <ToolbarButton onClick={cmdOrderedList} title="Lista Num."><ListOrdered size={14}/></ToolbarButton>
+          <ToolbarButton onClick={cmdQuote} title="Cita"><Quote size={14}/></ToolbarButton>
+          <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1.5" />
+          <ToolbarButton onClick={cmdCodeBlock} title="Bloque de código"><FileTerminal size={14}/></ToolbarButton>
+          <ToolbarButton onClick={cmdTable} title="Tabla"><TableIcon size={14}/></ToolbarButton>
+          <ToolbarButton onClick={cmdHr} title="Separador"><Minus size={14}/></ToolbarButton>
+          <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1.5" />
+          <ToolbarButton onClick={cmdLink} title="Enlace"><Link size={14}/></ToolbarButton>
+          <ToolbarButton onClick={cmdImage} title="Imagen"><Image size={14}/></ToolbarButton>
+
+          <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1.5" />
+          <div className="flex gap-1">
+            <ToolbarButton onClick={() => setPreviewMode('edit')} active={previewMode === 'edit'} title="Solo edición"><Edit3 size={12}/></ToolbarButton>
+            <ToolbarButton onClick={() => setPreviewMode('split')} active={previewMode === 'split'} title="Dividido"><Columns size={12}/></ToolbarButton>
+            <ToolbarButton onClick={() => setPreviewMode('preview')} active={previewMode === 'preview'} title="Solo vista"><Eye size={12}/></ToolbarButton>
+          </div>
+        </div>
+
         {previewMode !== 'preview' && (
           <textarea
             ref={textareaRef}
@@ -277,11 +297,11 @@ export function NotesPanel() {
             onChange={e => handleChange(e.target.value)}
             spellCheck={false}
             placeholder="Escribe tu bitácora de explotación en Markdown. Las imágenes pegadas (Ctrl+V) se guardarán automáticamente..."
-            className={`${previewMode === 'split' ? 'w-1/2 border-r' : 'w-full'} h-full resize-none outline-none p-6 font-mono text-[12px] leading-relaxed bg-white dark:bg-[#020617] text-slate-800 dark:text-teal-400 border-slate-200 dark:border-slate-800 custom-scrollbar placeholder:text-slate-400 dark:placeholder:text-slate-700`}
+            className={`${previewMode === 'split' ? 'w-1/2 border-r border-slate-200 dark:border-slate-800/80' : 'w-full'} h-full resize-none outline-none p-6 font-mono text-[12px] leading-relaxed bg-transparent text-slate-800 dark:text-rose-100/90 custom-scrollbar placeholder:text-slate-400 dark:placeholder:text-slate-600 pb-24`}
           />
         )}
         {previewMode !== 'edit' && (
-          <div className={`${previewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-auto custom-scrollbar bg-slate-50 dark:bg-[#060a13]`}>
+          <div className={`${previewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-auto custom-scrollbar bg-transparent pb-24`}>
             <div className="markdown-preview prose prose-slate dark:prose-invert max-w-none p-6 text-[13px] leading-relaxed text-slate-800 dark:text-slate-300" data-color-mode={theme}>
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[[rehypeSanitize, sanitizeSchema]]} urlTransform={sanitizeUrl} components={markdownComponents}>
                 {redTeamNotes || '_Bitácora vacía. Cierra tus findings..._'}
@@ -296,7 +316,7 @@ export function NotesPanel() {
 
 function ToolbarButton({ onClick, title, children, active = false }: { onClick: () => void; title: string; children: React.ReactNode; active?: boolean }) {
   return (
-    <button type="button" onClick={onClick} title={title} className={`p-1.5 rounded-md transition-colors ${active ? 'bg-teal-500 text-slate-950 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'}`}>
+    <button type="button" onClick={onClick} title={title} className={`p-1.5 rounded-full transition-all duration-200 outline-none ${active ? 'bg-rose-600 text-white shadow-md scale-105' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-rose-600 dark:hover:text-rose-500'}`}>
       {children}
     </button>
   );

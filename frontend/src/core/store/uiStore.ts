@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 // ==========================================================
-// FIRMAS DE REPORTE
+// FIRMAS DE REPORTE (MULTIFIRMA)
 // ==========================================================
 export interface ReportSignature {
   name: string
@@ -50,14 +50,21 @@ export interface UiState {
   // Reporte
   cveAutoEnrich: boolean
   includeCvss: boolean
-  signature: ReportSignature
+  includeMetrics: boolean      // NUEVO
+  includeInventory: boolean    // NUEVO
+  
+  // Soporte para Múltiples Firmantes
+  signatures: {
+    auditor: ReportSignature;
+    reviewer: ReportSignature;
+  }
 
   // Exam timer
-  examStartAt: number | null          // epoch ms del botón Start (no se mueve)
-  examDurationMs: number              // duración configurada
-  examRunning: boolean                // false = pausado
-  examPausedAt: number | null         // epoch ms de la última pausa
-  examElapsedBeforePause: number      // ms acumulados antes de la pausa actual
+  examStartAt: number | null         // epoch ms del botón Start (no se mueve)
+  examDurationMs: number             // duración configurada
+  examRunning: boolean               // false = pausado
+  examPausedAt: number | null        // epoch ms de la última pausa
+  examElapsedBeforePause: number     // ms acumulados antes de la pausa actual
   currentPhase: ExamPhase
   phaseLog: PhaseLogEntry[]
 
@@ -77,8 +84,12 @@ export interface UiState {
   setIncludeCvss: (v: boolean) => void
   toggleIncludeCvss: () => void
 
-  setSignature: (patch: Partial<ReportSignature>) => void
-  clearSignature: () => void
+  toggleIncludeMetrics: () => void   // NUEVO
+  toggleIncludeInventory: () => void // NUEVO
+
+  // Acciones de Firma Dual
+  setSignature: (type: 'auditor' | 'reviewer', patch: Partial<ReportSignature>) => void
+  clearSignature: (type: 'auditor' | 'reviewer') => void
 
   // Acciones del timer
   startExam: (durationMs?: number) => void
@@ -110,7 +121,12 @@ export const useUiStore = create<UiState>()(
       // ---------- Reporte ----------
       cveAutoEnrich: true,
       includeCvss: true,
-      signature: { ...EMPTY_SIGNATURE },
+      includeMetrics: true,    // NUEVO
+      includeInventory: true,  // NUEVO
+      signatures: {
+        auditor: { ...EMPTY_SIGNATURE },
+        reviewer: { ...EMPTY_SIGNATURE }
+      },
 
       // ---------- Timer ----------
       examStartAt: null,
@@ -123,29 +139,44 @@ export const useUiStore = create<UiState>()(
 
       // ---------- Acciones UI ----------
       toggleTheme: () =>
-        set((state) => {
+        set((state: UiState) => {
           const nt = state.theme === 'light' ? 'dark' : 'light'
           if (nt === 'dark') document.documentElement.classList.add('dark')
           else document.documentElement.classList.remove('dark')
           return { theme: nt }
         }),
-      toggleCompactMode: () => set((s) => ({ compactMode: !s.compactMode })),
-      toggleZenMode: () => set((s) => ({ zenMode: !s.zenMode })),
+      toggleCompactMode: () => set((s: UiState) => ({ compactMode: !s.compactMode })),
+      toggleZenMode: () => set((s: UiState) => ({ zenMode: !s.zenMode })),
       setVolume: (v) => set({ volume: v }),
-      toggleSound: () => set((s) => ({ soundEnabled: !s.soundEnabled })),
+      toggleSound: () => set((s: UiState) => ({ soundEnabled: !s.soundEnabled })),
       setIsTerminalOpen: (v) => set({ isTerminalOpen: v }),
       setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),
-      toggleQuickNotes: () => set((s) => ({ quickNotesOpen: !s.quickNotesOpen })),
+      toggleQuickNotes: () => set((s: UiState) => ({ quickNotesOpen: !s.quickNotesOpen })),
 
       setCveAutoEnrich: (v) => set({ cveAutoEnrich: v }),
-      toggleCveAutoEnrich: () => set((s) => ({ cveAutoEnrich: !s.cveAutoEnrich })),
+      toggleCveAutoEnrich: () => set((s: UiState) => ({ cveAutoEnrich: !s.cveAutoEnrich })),
 
       setIncludeCvss: (v) => set({ includeCvss: v }),
-      toggleIncludeCvss: () => set((s) => ({ includeCvss: !s.includeCvss })),
+      toggleIncludeCvss: () => set((s: UiState) => ({ includeCvss: !s.includeCvss })),
 
-      setSignature: (patch) =>
-        set((s) => ({ signature: { ...s.signature, ...patch } })),
-      clearSignature: () => set({ signature: { ...EMPTY_SIGNATURE } }),
+      toggleIncludeMetrics: () => set((s: UiState) => ({ includeMetrics: !s.includeMetrics })),
+      toggleIncludeInventory: () => set((s: UiState) => ({ includeInventory: !s.includeInventory })),
+
+      setSignature: (type, patch) =>
+        set((s: UiState) => ({
+          signatures: {
+            ...s.signatures,
+            [type]: { ...s.signatures[type], ...patch }
+          }
+        })),
+      
+      clearSignature: (type) => 
+        set((s: UiState) => ({
+          signatures: {
+            ...s.signatures,
+            [type]: { ...EMPTY_SIGNATURE }
+          }
+        })),
 
       // ---------- Acciones Timer ----------
       startExam: (durationMs) => {
@@ -215,10 +246,6 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'lessso-c2-uiStore',
-      // Persistimos solo lo "durable". El timer NO persiste
-      // `examRunning`/`examPausedAt` a propósito: si cierras la app
-      // con el timer corriendo, al reabrir aparece pausado en el
-      // punto donde quedó, no "recupera" tiempo de fondo.
       partialize: (state) => ({
         theme: state.theme,
         compactMode: state.compactMode,
@@ -226,26 +253,31 @@ export const useUiStore = create<UiState>()(
         soundEnabled: state.soundEnabled,
         cveAutoEnrich: state.cveAutoEnrich,
         includeCvss: state.includeCvss,
-        signature: state.signature,
-
-        // Timer: solo lo persistente
+        includeMetrics: state.includeMetrics,
+        includeInventory: state.includeInventory,
+        signatures: state.signatures,
         examStartAt: state.examStartAt,
         examDurationMs: state.examDurationMs,
         examElapsedBeforePause: state.examElapsedBeforePause,
         currentPhase: state.currentPhase,
         phaseLog: state.phaseLog,
       }),
-      onRehydrateStorage: () => (state) => {
+      onRehydrateStorage: () => (state: any) => {
         if (state?.theme === 'dark') {
           document.documentElement.classList.add('dark')
         } else if (state?.theme === 'light') {
           document.documentElement.classList.remove('dark')
         }
-        // Si había un examen iniciado, forzamos modo pausado al
-        // rehidratar (no queremos que corra sin ventana).
         if (state?.examStartAt) {
           state.examRunning = false
           state.examPausedAt = Date.now()
+        }
+        if (state?.signature && !state?.signatures) {
+           state.signatures = {
+             auditor: state.signature,
+             reviewer: { ...EMPTY_SIGNATURE }
+           };
+           delete state.signature;
         }
       },
     }

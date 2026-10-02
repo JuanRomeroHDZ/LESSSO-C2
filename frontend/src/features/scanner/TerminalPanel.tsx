@@ -88,17 +88,17 @@ export function TerminalPanel() {
     if (output.length === 0) return;
     const blob = new Blob([output.join('\n')], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); 
-    a.href = url; 
-    a.download = `nmap_log_${Date.now()}.txt`; 
-    a.click(); 
+    const a = document.createElement('a');  
+    a.href = url;  
+    a.download = `nmap_log_${Date.now()}.txt`;  
+    a.click();  
     URL.revokeObjectURL(url);
     if (!isSilent) alert('Log exportado a Descargas.');
   };
 
   const copyCommand = () => {
-    navigator.clipboard.writeText(commandString); 
-    setCopied(true); 
+    navigator.clipboard.writeText(commandString);  
+    setCopied(true);  
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -123,14 +123,14 @@ export function TerminalPanel() {
     });
 
     const unlistenFinished = listen<string>('nmap-finished', (event) => {
-      appendOutput(`\n${event.payload}`); 
-      setIsScanning(false); 
+      appendOutput(`\n${event.payload}`);  
+      setIsScanning(false);  
       setProgressText('Completado');
     });
 
-    return () => { 
-      unlistenOutput.then(f => f()); 
-      unlistenFinished.then(f => f()); 
+    return () => {  
+      unlistenOutput.then(f => f());  
+      unlistenFinished.then(f => f());  
     };
   }, [appendOutput, setIsScanning, setProgressText]);
 
@@ -180,7 +180,7 @@ export function TerminalPanel() {
       </div>
 
       {/* SCANNER TAB */}
-      <div className={`flex-col flex-1 h-full min-h-0 ${activeTab === 'scanner' ? 'flex' : 'hidden'}`}>
+      <div className={`flex-col flex-1 h-full min-h-0 w-full ${activeTab === 'scanner' ? 'flex' : 'hidden'}`}>
         <div className="bg-slate-900/50 px-4 py-2 flex justify-between items-center border-b border-slate-800/80 shrink-0">
           <div className="flex items-center gap-3 overflow-hidden">
             <span className="text-[11px] font-mono text-slate-400 truncate max-w-md hidden md:block">
@@ -216,7 +216,7 @@ export function TerminalPanel() {
           </div>
         </div>
 
-        <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap scroll-smooth relative custom-scrollbar">
+        <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto min-h-0 w-full p-4 font-mono text-[12px] leading-relaxed break-all whitespace-pre-wrap scroll-smooth relative custom-scrollbar">
           {filteredOutput.length > 0 ? filteredOutput.map((line, i) => <ColorizeLine key={i} line={line} />) : <span className="text-slate-600">Esperando ejecución...</span>}
           <div ref={terminalEndRef} />
         </div>

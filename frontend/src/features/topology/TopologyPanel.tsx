@@ -1,21 +1,24 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useState } from 'react'
 import ReactFlow, { Background, Controls, MiniMap, BackgroundVariant } from 'reactflow'
 import type { Node, Edge, NodeTypes, EdgeTypes } from 'reactflow'
 import 'reactflow/dist/style.css'
 import { useScanStore } from '../../core/store/useScanStore'
-import { Printer } from 'lucide-react'
+import { Printer, EyeOff, Eye } from 'lucide-react'
 
 const MAX_NODES = 25
 
 export function TopologyPanel() {
   const { parsedData, isScanning, theme } = useScanStore()
   
+  // NUEVO: Estado para alternar entre ver todos los hosts o solo los vivos
+  const [showOffline, setShowOffline] = useState(false)
+  
   const nodeTypes = useMemo<NodeTypes>(() => ({}), []);
   const edgeTypes = useMemo<EdgeTypes>(() => ({}), []);
 
-  const { nodes, edges, isTrimmed } = useMemo(() => {
+  const { nodes, edges, isTrimmed, offlineCount } = useMemo(() => {
     if (!Array.isArray(parsedData) || parsedData.length === 0) {
-      return { nodes: [] as Node[], edges: [] as Edge[], isTrimmed: false }
+      return { nodes: [] as Node[], edges: [] as Edge[], isTrimmed: false, offlineCount: 0 }
     }
 
     const initialNodes: Node[] = [
@@ -40,11 +43,19 @@ export function TopologyPanel() {
     ]
     const initialEdges: Edge[] = []
 
-    const isTrimmed = parsedData.length > MAX_NODES
-    const safeData = parsedData.slice(0, MAX_NODES)
+    // LÓGICA DE FILTRADO
+    const activeData = parsedData.filter(h => h.status === 'up');
+    const offlineCount = parsedData.length - activeData.length;
+    
+    // Si showOffline es true, usamos todos los datos, si no, solo los vivos.
+    const workingData = showOffline ? parsedData : activeData;
+
+    const isTrimmed = workingData.length > MAX_NODES
+    const safeData = workingData.slice(0, MAX_NODES)
     const isDark = theme === 'dark'
 
     safeData.forEach((host, index) => {
+      // Al haber filtrado los muertos, el xPos acomodará los vivos sin dejar huecos
       const xPos = 50 + index * 220
       const isUp = host.status === 'up'
       const osLower = (host.os || '').toLowerCase()
@@ -67,7 +78,7 @@ export function TopologyPanel() {
         id: host.ip,
         data: {
           label: (
-            <div className="text-center flex flex-col items-center">
+            <div className={`text-center flex flex-col items-center ${!isUp ? 'opacity-50 grayscale' : ''}`}>
               <span className="text-3xl mb-2">{osIcon}</span>
               <div className="font-black text-[13px] text-slate-800 dark:text-white tracking-widest font-mono">
                 {host.ip}
@@ -81,10 +92,10 @@ export function TopologyPanel() {
                 {host.os || 'OS Desconocido'}
               </div>
               <div className="flex gap-1.5 mt-3">
-                <span className="text-[9px] bg-teal-500/10 border border-teal-500/20 text-teal-700 dark:text-teal-400 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">
-                  {totalPorts} Pts
+                <span className={`text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider border ${isUp ? 'bg-teal-500/10 border-teal-500/20 text-teal-700 dark:text-teal-400' : 'bg-slate-500/10 border-slate-500/20 text-slate-500 dark:text-slate-400'}`}>
+                  {isUp ? `${totalPorts} Pts` : 'Down'}
                 </span>
-                {criticalPorts > 0 && (
+                {criticalPorts > 0 && isUp && (
                   <span className="text-[9px] bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider animate-pulse">
                     ! Crit
                   </span>
@@ -109,12 +120,12 @@ export function TopologyPanel() {
         source: 'scanner-root',
         target: host.ip,
         animated: isUp,
-        style: { stroke: isUp ? '#2dd4bf' : '#e11d48', strokeWidth: 2 },
+        style: { stroke: isUp ? '#2dd4bf' : '#e11d48', strokeWidth: 2, strokeDasharray: isUp ? 'none' : '5 5' },
       })
     })
 
-    return { nodes: initialNodes, edges: initialEdges, isTrimmed }
-  }, [parsedData, theme])
+    return { nodes: initialNodes, edges: initialEdges, isTrimmed, offlineCount }
+  }, [parsedData, theme, showOffline])
 
   const handlePrint = useCallback(() => { window.print() }, [])
 
@@ -150,11 +161,29 @@ export function TopologyPanel() {
         <button onClick={handlePrint} className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white text-[10px] font-bold uppercase tracking-wider rounded-md shadow-lg hover:bg-teal-500 transition-colors">
           <Printer size={14} /> Imprimir Topología
         </button>
+        
+        {/* BOTÓN TOGGLE OFFLINE */}
+        {offlineCount > 0 && (
+          <button 
+            onClick={() => setShowOffline(!showOffline)} 
+            className={`flex items-center gap-1.5 px-4 py-2 text-[10px] font-bold uppercase tracking-wider rounded-md shadow-lg transition-colors border ${
+              showOffline 
+                ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-300 dark:hover:bg-slate-700' 
+                : 'bg-white dark:bg-[#0b1120] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            {showOffline ? (
+              <><Eye size={14} /> Ocultar Inactivos</>
+            ) : (
+              <><EyeOff size={14} /> Ver Inactivos ({offlineCount})</>
+            )}
+          </button>
+        )}
       </div>
 
       {isTrimmed && (
         <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 px-6 py-2 rounded-full text-xs font-bold uppercase tracking-wider shadow-md backdrop-blur-sm print:hidden">
-          Mostrando {MAX_NODES} de {parsedData.length} hosts
+          Mostrando {MAX_NODES} de {showOffline ? parsedData.length : parsedData.length - offlineCount} hosts
         </div>
       )}
 

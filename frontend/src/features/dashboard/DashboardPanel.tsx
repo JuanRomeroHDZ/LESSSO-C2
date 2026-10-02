@@ -27,7 +27,9 @@ export function DashboardPanel() {
   const cveAutoEnrich = useUiStore((s) => s.cveAutoEnrich)
   const toggleCveAutoEnrich = useUiStore((s) => s.toggleCveAutoEnrich)
   const includeCvss = useUiStore((s) => s.includeCvss)
-  const signature = useUiStore((s) => s.signature)
+  
+  // SOLUCIÓN AL ERROR EN LÍNEA 30
+  const signatures = useUiStore((s) => s.signatures)
 
   const [showDiff, setShowDiff] = useState(false)
   const [previewModal, setPreviewModal] = useState<'md' | 'html' | 'json' | null>(null)
@@ -46,7 +48,7 @@ export function DashboardPanel() {
   const reportGenerator = useReportGeneration(
     target, commandString, scanDuration, filters.filteredData, vaultCredentials,
     redTeamNotes, importWorkspace, false, expansion.setExpandedHosts,
-    expansion.setExpandedPorts, includeCvss, signature
+    expansion.setExpandedPorts, includeCvss, signatures
   )
 
   const reportGeneratorRef = useRef(reportGenerator)
@@ -165,7 +167,6 @@ export function DashboardPanel() {
         </div>
       </div>
 
-      {/* AQUÍ ESTABA EL ERROR: Solo se quitó filteredData */}
       {previewModal && (
         <PreviewModal
           type={previewModal} onClose={() => setPreviewModal(null)} onSave={reportGenerator.handleSaveFile}

@@ -4,8 +4,6 @@ import { writeTextFile, readTextFile } from '@tauri-apps/plugin-fs'
 import type { HostInfo, VaultCred, PortInfo } from '../../../core/store/useScanStore'
 import type { CveMatch, Severity } from '../utils/cve'
 import { useUiStore, type PhaseLogEntry } from '../../../core/store/uiStore'
-// import { detectCVEs } from '../utils/cve'
-import type { ReportSignature } from '../../../core/store/uiStore'
 import {
   escapeMdInline,
   escapeMdCell,
@@ -260,9 +258,9 @@ function cveMdRow(cve: CveMatch, includeCvss: boolean): string {
     : '-'
   const cveLink = nvdMdLink(cve.id)
   if (includeCvss) {
-    return `| ${cveLink} | **${sev}** | ${cvssMdCell(cve.cvss)} | ${escapeMdCell(cwe)} | ${src} | ${desc} |`
+    return `| ${cveLink} \vert{} **${sev}** | ${cvssMdCell(cve.cvss)} \vert{}${escapeMdCell(cwe)} | ${src} \vert{}${desc} |`
   }
-  return `| ${cveLink} | **${sev}** | ${escapeMdCell(cwe)} | ${src} | ${desc} |`
+  return `| ${cveLink} | **${sev}** \vert{}${escapeMdCell(cwe)} | ${src} \vert{}${desc} |`
 }
 
 function cveMdHeader(includeCvss: boolean): { header: string; sep: string } {
@@ -366,19 +364,53 @@ function buildScopeMd(
   return md
 }
 
-function buildSignatureMd(sig: ReportSignature): string {
-  if (!sig.name.trim()) return ''
-  const sigDate = sig.date || new Date().toISOString()
-  let md = `## Firmas\n\n`
-  md += `| Campo | Valor |\n`
-  md += `|---|---|\n`
-  md += `| **Auditor** | ${escapeMdCell(sig.name)} |\n`
-  if (sig.role.trim()) md += `| **Cargo** | ${escapeMdCell(sig.role)} |\n`
-  if (sig.company.trim()) md += `| **Empresa** | ${escapeMdCell(sig.company)} |\n`
-  md += `| **Fecha de firma (UTC)** | \`${sigDate}\` |\n\n`
-  md += `---\n\n`
-  return md
+
+function buildSignatureMd(signatures: any): string {
+  const auditor = signatures.auditor;
+  const reviewer = signatures.reviewer;
+
+  if (!auditor || !auditor.name || auditor.name.trim() === '') {
+    return '';
+  }
+
+  let md = "## Firmas de Aprobación\n\n";
+  
+  if (reviewer && reviewer.name && reviewer.name.trim() !== '') {
+    const audRole = escapeMdCell(auditor.role ? auditor.role : '-');
+    const revRole = escapeMdCell(reviewer.role ? reviewer.role : '-');
+    const audComp = escapeMdCell(auditor.company ? auditor.company : '-');
+    const revComp = escapeMdCell(reviewer.company ? reviewer.company : '-');
+    const audDate = auditor.date ? auditor.date : new Date().toISOString();
+    const revDate = reviewer.date ? reviewer.date : new Date().toISOString();
+
+    md += "| Campo | Auditor Principal | Validador (QA) |\n";
+    md += "|---|---|---|\n";
+    md += "| **Nombre** | " + escapeMdCell(auditor.name) + " | " + escapeMdCell(reviewer.name) + " |\n";
+    md += "| **Cargo** | " + audRole + " | " + revRole + " |\n";
+    md += "| **Organización** | " + audComp + " | " + revComp + " |\n";
+    md += "| **Fecha (UTC)** | `" + audDate + "` | `" + revDate + "` |\n\n";
+  } else {
+    md += "| Campo | Detalle |\n";
+    md += "|---|---|\n";
+    md += "| **Auditor** | " + escapeMdCell(auditor.name) + " |\n";
+    
+    if (auditor.role && auditor.role.trim() !== '') {
+      md += "| **Cargo** | " + escapeMdCell(auditor.role) + " |\n";
+    }
+    
+    if (auditor.company && auditor.company.trim() !== '') {
+      md += "| **Empresa** | " + escapeMdCell(auditor.company) + " |\n";
+    }
+    
+    const audDate = auditor.date ? auditor.date : new Date().toISOString();
+    md += "| **Fecha (UTC)** | `" + audDate + "` |\n\n";
+  }
+  
+  md += "---\n\n";
+  return md;
 }
+
+
 
 function buildHashMd(hash: string): string {
   const algo = hashAlgorithmLabel(hash)
@@ -399,8 +431,8 @@ function formatDuration(ms?: number): string {
   const h = Math.floor(totalSec / 3600)
   const m = Math.floor((totalSec % 3600) / 60)
   const s = totalSec % 60
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
+  if (h > 0) return `${h}h ${m}m${s}s`
+  if (m > 0) return `${m}m${s}s`
   return `${s}s`
 }
 
@@ -460,6 +492,7 @@ function buildTimelineHtml(snap: TimelineSnapshot): string {
 // ==========================================================
 // HOOK
 // ==========================================================
+
 export function useReportGeneration(
   target: string,
   commandString: string,
@@ -472,19 +505,13 @@ export function useReportGeneration(
   setExpandedHosts: (hosts: Record<string, boolean>) => void,
   setExpandedPorts: (ports: Record<string, boolean>) => void,
   includeCvss: boolean = true,
-  signature: ReportSignature = { name: '', role: '', company: '', date: '' },
+  signatures: any = { auditor: { name: '', role: '', company: '', date: '' }, reviewer: { name: '', role: '', company: '', date: '' } },
+  includeMetrics: boolean = true,
+  includeInventory: boolean = true
 ) {
+
   const parsedCommand = parseFlags(commandString)
 
-  // ==========================================================
-  // SNAPSHOT DEL TIMELINE
-  // ----------------------------------------------------------
-  // Leemos el estado del timer vía getState() para que el reporte
-  // quede "congelado" en el momento de la exportación. No usamos
-  // suscripciones reactivas (useUiStore((s) => ...)) porque eso
-  // haría que el reporte cambiara en vivo mientras el usuario lo
-  // está leyendo.
-  // ==========================================================
   const readTimelineSnapshot = useCallback((): TimelineSnapshot => {
     const s = useUiStore.getState()
     return {
@@ -494,13 +521,6 @@ export function useReportGeneration(
     }
   }, [])
 
-  // ==========================================================
-  // generateMarkdown
-  //   FIX: `nowIso` es un PARÁMETRO. Si no se pasa, se genera uno nuevo.
-  //   El llamador (DashboardPanel) debe pasar SIEMPRE el timestamp
-  //   congelado al abrir el modal para que "Ventana temporal" e
-  //   "Información del Escaneo" no cambien en vivo.
-  // ==========================================================
   const generateMarkdown = useCallback(
     (integrityHash?: string, nowIso: string = new Date().toISOString()) => {
       const exec = computeExecutiveSummary(filteredData)
@@ -518,7 +538,6 @@ export function useReportGeneration(
         parsedCommand,
       )
 
-      // ----- Información del Escaneo (tabla cerrada) -----
       md += `## Información del Escaneo\n\n`
       md += `| Campo | Valor |\n`
       md += `|---|---|\n`
@@ -531,147 +550,139 @@ export function useReportGeneration(
       }
       md += `\n`
 
-      // ----- Timeline del Examen (sección propia, DESPUÉS de la tabla) -----
       md += buildTimelineMd(timeline)
 
-      md += `## Métricas del Escaneo\n\n`
-      md += `| Métrica | Valor |\n`
-      md += `|---|---|\n`
-      md += `| **Hosts totales** | ${exec.metrics.totalHosts} |\n`
-      md += `| **Hosts activos** | ${exec.metrics.upHosts} |\n`
-      md += `| **Puertos abiertos** | ${exec.metrics.openPorts} / ${exec.metrics.totalPorts} |\n`
-      md += `| **Servicios únicos** | ${exec.metrics.uniqueServices} |\n`
-      md += `| **CVEs totales** | ${exec.metrics.totalCves} |\n`
-      md += `| **CVEs críticos** | ${exec.metrics.cvesBySeverity.critical} |\n`
-      md += `| **CVEs altos** | ${exec.metrics.cvesBySeverity.high} |\n`
-      md += `| **CVEs medios** | ${exec.metrics.cvesBySeverity.medium} |\n`
-      md += `| **CVEs bajos** | ${exec.metrics.cvesBySeverity.low} |\n`
-      md += `| **CVEs desconocidos** | ${exec.metrics.cvesBySeverity.unknown} |\n`
-      md += `\n`
-
-      md += `## Resumen Ejecutivo\n\n`
-      md += `### Vulnerabilidades por Severidad\n\n`
-      md += `| Severidad | Cantidad |\n`
-      md += `|---|---|\n`
-      md += `| **Críticos** | ${exec.global.crit} |\n`
-      md += `| **Altos**    | ${exec.global.high} |\n`
-      md += `| **Medios**   | ${exec.global.med} |\n`
-      md += `| **Bajos**    | ${exec.global.low} |\n`
-      md += `| **Total**    | **${exec.global.total}** |\n\n`
-
-      if (exec.topServices.length > 0) {
-        md += `### Top Servicios Expuestos\n\n`
-        md += `| # | Servicio | Puertos abiertos |\n`
-        md += `|---|---|---|\n`
-        exec.topServices.forEach((s, i) => {
-          md += `| ${i + 1} | ${escapeMdCell(s.name)} | ${s.count} |\n`
-        })
-        md += `\n`
-      }
-
-      if (exec.topCves.length > 0) {
-        md += `### Top CVEs Críticos\n\n`
-        if (includeCvss) {
-          md += `| CVE | Severidad | CVSS | Descripción |\n`
-          md += `|---|---|---|---|\n`
-          exec.topCves.forEach((c) => {
-            const desc = c.description
-              ? escapeMdCell(c.description.replace(/\s+/g, ' ').slice(0, 180))
-              : '-'
-            md += `| ${nvdMdLink(c.id)} | **${SEVERITY_LABEL[c.severity]}** | ${cvssMdCell(c.cvss)} | ${desc} |\n`
-          })
-        } else {
-          md += `| CVE | Severidad | Descripción |\n`
-          md += `|---|---|---|\n`
-          exec.topCves.forEach((c) => {
-            const desc = c.description
-              ? escapeMdCell(c.description.replace(/\s+/g, ' ').slice(0, 180))
-              : '-'
-            md += `| ${nvdMdLink(c.id)} | **${SEVERITY_LABEL[c.severity]}** | ${desc} |\n`
-          })
-        }
-        md += `\n`
-      }
-
-      md += `## Resumen de Hosts\n\n`
-      md += `| IP | Hostname | SO | MAC | Puertos abiertos | Críticos | Altos | Medios | Total CVEs |\n`
-      md += `|---|---|---|---|---|---|---|---|---|\n`
-      filteredData.forEach((h) => {
-        const cves = collectHostCves(h)
-        const openCount = (h.ports || []).filter((p) => p.state === 'open').length
-        md += `| \`${escapeMdCell(h.ip)}\` | ${escapeMdCell(h.hostname || '-')} | ${escapeMdCell(h.os || '-')} | ${escapeMdCell(h.mac || '-')} | ${openCount} | **${cves.crit}** | **${cves.high}** | ${cves.med} | ${cves.total} |\n`
-      })
-      md += `\n---\n\n`
-
-      md += `## Detalle por Host\n\n`
-
-      filteredData.forEach((host) => {
-        const hostCves = collectHostCves(host)
-        const portsWithCves: PortWithCves[] = (host.ports || []).map((port) => ({
-          port,
-          cves: collectPortCves(port),
-        }))
-
-        md += `### Host: \`${escapeMdInline(host.ip)}\`\n\n`
-        md += `| Campo | Valor |\n`
+      if (includeMetrics) {
+        md += `## Métricas del Escaneo\n\n`
+        md += `| Métrica | Valor |\n`
         md += `|---|---|\n`
-        md += `| **Estado** | ${escapeMdInline(host.status.toUpperCase())} |\n`
-        if (host.hostname) md += `| **DNS** | ${escapeMdInline(host.hostname)} |\n`
-        if (host.mac) md += `| **MAC** | ${escapeMdInline(host.mac)}${host.mac_vendor ? ` (${escapeMdInline(host.mac_vendor)})` : ''} |\n`
-        if (host.os) md += `| **SO** | ${escapeMdInline(host.os)}${host.os_accuracy ? ` (${escapeMdInline(host.os_accuracy)}%)` : ''} |\n`
-        if (host.uptime_seconds) md += `| **Uptime** | ${Math.floor(host.uptime_seconds / 3600)}h |\n`
-        if (host.distance) md += `| **Saltos** | ${host.distance} |\n`
-        md += `| **CVEs** | ${hostCves.crit} críticos · ${hostCves.high} altos · ${hostCves.med} medios · ${hostCves.total} total |\n\n`
+        md += `| **Hosts totales** | ${exec.metrics.totalHosts} |\n`
+        md += `| **Hosts activos** | ${exec.metrics.upHosts} |\n`
+        md += `| **Puertos abiertos** | ${exec.metrics.openPorts} / ${exec.metrics.totalPorts} |\n`
+        md += `| **Servicios únicos** | ${exec.metrics.uniqueServices} |\n`
+        md += `| **CVEs totales** | ${exec.metrics.totalCves} |\n`
+        md += `| **CVEs críticos** | ${exec.metrics.cvesBySeverity.critical} |\n`
+        md += `| **CVEs altos** | ${exec.metrics.cvesBySeverity.high} |\n`
+        md += `| **CVEs medios** | ${exec.metrics.cvesBySeverity.medium} |\n`
+        md += `| **CVEs bajos** | ${exec.metrics.cvesBySeverity.low} |\n`
+        md += `| **CVEs desconocidos** | ${exec.metrics.cvesBySeverity.unknown} |\n`
+        md += `\n`
 
-        if (portsWithCves.length > 0) {
-          md += `#### Puertos Detectados\n\n`
-          md += `| Puerto/Proto | Estado | Razón | Servicio | Versión | CPE | CVEs |\n`
-          md += `|---|---|---|---|---|---|---|\n`
-          portsWithCves.forEach(({ port, cves }) => {
-            const cpeStr = port.cpe && port.cpe.length > 0 ? port.cpe.join('<br>') : '-'
-            const cveStr =
-              cves.length > 0
-                ? cves.map((c) => `${nvdMdLink(c.id)} (${SEVERITY_LABEL[c.severity]})`).join('<br>')
-                : '-'
-            md += `| \`${escapeMdCell(port.portid)}/${escapeMdCell(port.protocol)}\` | ${escapeMdCell(port.state)} | ${escapeMdCell(port.reason || '-')} | ${escapeMdCell(port.service || '-')} | ${escapeMdCell(port.version || '-')} | ${cpeStr} | ${cveStr} |\n`
-          })
-          md += `\n`
-        } else {
-          md += `*Sin puertos detectados.*\n\n`
-        }
+        md += `## Resumen Ejecutivo\n\n`
+        md += `### Vulnerabilidades por Severidad\n\n`
+        md += `| Severidad | Cantidad |\n`
+        md += `|---|---|\n`
+        md += `| **Críticos** | ${exec.global.crit} |\n`
+        md += `| **Altos**    | ${exec.global.high} |\n`
+        md += `| **Medios**   | ${exec.global.med} |\n`
+        md += `| **Bajos**    | ${exec.global.low} |\n`
+        md += `| **Total**    | **${exec.global.total}** |\n\n`
 
-        if (hostCves.total > 0) {
-          md += `#### Vulnerabilidades Detectadas\n\n`
-          const { header, sep } = cveMdHeader(includeCvss)
-          md += `${header}\n${sep}\n`
-          hostCves.cves.forEach((c) => {
-            md += cveMdRow(c, includeCvss) + `\n`
+        if (exec.topServices.length > 0) {
+          md += `### Top Servicios Expuestos\n\n`
+          md += `| # | Servicio | Puertos abiertos |\n`
+          md += `|---|---|---|\n`
+          exec.topServices.forEach((s, i) => {
+            md += `| ${i + 1} | ${escapeMdCell(s.name)} | ${s.count} |\n`
           })
           md += `\n`
         }
 
-        const portsWithScripts = (host.ports || []).filter(
-          (p) => p.scripts && p.scripts.length > 0,
-        )
-        if (portsWithScripts.length > 0) {
-          md += `#### Scripts de Puertos\n\n`
-          portsWithScripts.forEach((p) => {
-            md += `**Puerto ${escapeMdInline(p.portid)}/${escapeMdInline(p.protocol)}**\n\n`
-            p.scripts!.forEach((s) => {
+        if (exec.topCves.length > 0) {
+          md += `### Top CVEs Críticos\n\n`
+          if (includeCvss) {
+            md += `| CVE | Severidad | CVSS | Descripción |\n`
+            md += `|---|---|---|---|\n`
+            exec.topCves.forEach((c) => {
+              const desc = c.description ? escapeMdCell(c.description.replace(/\s+/g, ' ').slice(0, 180)) : '-'
+              md += `| ${nvdMdLink(c.id)} | **${SEVERITY_LABEL[c.severity]}** | ${cvssMdCell(c.cvss)} | ${desc} |\n`
+            })
+          } else {
+            md += `| CVE | Severidad | Descripción |\n`
+            md += `|---|---|---|\n`
+            exec.topCves.forEach((c) => {
+              const desc = c.description ? escapeMdCell(c.description.replace(/\s+/g, ' ').slice(0, 180)) : '-'
+              md += `| ${nvdMdLink(c.id)} | **${SEVERITY_LABEL[c.severity]}** | ${desc} |\n`
+            })
+          }
+          md += `\n`
+        }
+      }
+
+      if (includeInventory) {
+        md += `## Resumen de Hosts\n\n`
+        md += `| IP | Hostname | SO | MAC | Puertos abiertos | Críticos | Altos | Medios | Total CVEs |\n`
+        md += `|---|---|---|---|---|---|---|---|---|\n`
+        filteredData.forEach((h) => {
+          const cves = collectHostCves(h)
+          const openCount = (h.ports || []).filter((p) => p.state === 'open').length
+          md += `| \`${escapeMdCell(h.ip)}\` | ${escapeMdCell(h.hostname || '-')} | ${escapeMdCell(h.os || '-')} | ${escapeMdCell(h.mac || '-')} | ${openCount} | **${cves.crit}** | **${cves.high}** | ${cves.med} | ${cves.total} |\n`
+        })
+        md += `\n---\n\n`
+
+        md += `## Detalle por Host\n\n`
+
+        filteredData.forEach((host) => {
+          const hostCves = collectHostCves(host)
+          const portsWithCves: PortWithCves[] = (host.ports || []).map((port) => ({
+            port,
+            cves: collectPortCves(port),
+          }))
+
+          md += `### Host: \`${escapeMdInline(host.ip)}\`\n\n`
+          md += `| Campo | Valor |\n`
+          md += `|---|---|\n`
+          md += `| **Estado** | ${escapeMdInline(host.status.toUpperCase())} |\n`
+          if (host.hostname) md += `| **DNS** | ${escapeMdInline(host.hostname)} |\n`
+          if (host.mac) md += `| **MAC** | ${escapeMdInline(host.mac)}${host.mac_vendor ? ` (${escapeMdInline(host.mac_vendor)})` : ''} |\n`
+          if (host.os) md += `| **SO** | ${escapeMdInline(host.os)}${host.os_accuracy ? ` (${escapeMdInline(host.os_accuracy)}%)` : ''} |\n`
+          if (host.uptime_seconds) md += `| **Uptime** | ${Math.floor(host.uptime_seconds / 3600)}h |\n`
+          if (host.distance) md += `| **Saltos** | ${host.distance} |\n`
+          md += `| **CVEs** | ${hostCves.crit} críticos · ${hostCves.high} altos · ${hostCves.med} medios · ${hostCves.total} total |\n\n`
+
+          if (portsWithCves.length > 0) {
+            md += `#### Puertos Detectados\n\n`
+            md += `| Puerto/Proto | Estado | Razón | Servicio | Versión | CPE | CVEs |\n`
+            md += `|---|---|---|---|---|---|---|\n`
+            portsWithCves.forEach(({ port, cves }) => {
+              const cpeStr = port.cpe && port.cpe.length > 0 ? port.cpe.join('<br>') : '-'
+              const cveStr = cves.length > 0 ? cves.map((c) => `${nvdMdLink(c.id)} (${SEVERITY_LABEL[c.severity]})`).join('<br>') : '-'
+              md += `| \`${escapeMdCell(port.portid)}/${escapeMdCell(port.protocol)}\` | ${escapeMdCell(port.state)} | ${escapeMdCell(port.reason || '-')} | ${escapeMdCell(port.service || '-')} | ${escapeMdCell(port.version || '-')} | ${cpeStr} | ${cveStr} |\n`
+            })
+            md += `\n`
+          } else {
+            md += `*Sin puertos detectados.*\n\n`
+          }
+
+          if (hostCves.total > 0) {
+            md += `#### Vulnerabilidades Detectadas\n\n`
+            const { header, sep } = cveMdHeader(includeCvss)
+            md += `${header}\n${sep}\n`
+            hostCves.cves.forEach((c) => { md += cveMdRow(c, includeCvss) + `\n` })
+            md += `\n`
+          }
+
+          const portsWithScripts = (host.ports || []).filter((p) => p.scripts && p.scripts.length > 0)
+          if (portsWithScripts.length > 0) {
+            md += `#### Scripts de Puertos\n\n`
+            portsWithScripts.forEach((p) => {
+              md += `**Puerto ${escapeMdInline(p.portid)}/${escapeMdInline(p.protocol)}**\n\n`
+              p.scripts!.forEach((s) => {
+                md += `- \`${escapeMdInline(s.id)}\`:\n\n\`\`\`\n${escapeMdCode(s.output)}\n\`\`\`\n\n`
+              })
+            })
+          }
+
+          if (host.scripts && host.scripts.length > 0) {
+            md += `#### Host Script Output\n\n`
+            host.scripts.forEach((s) => {
               md += `- \`${escapeMdInline(s.id)}\`:\n\n\`\`\`\n${escapeMdCode(s.output)}\n\`\`\`\n\n`
             })
-          })
-        }
+          }
 
-        if (host.scripts && host.scripts.length > 0) {
-          md += `#### Host Script Output\n\n`
-          host.scripts.forEach((s) => {
-            md += `- \`${escapeMdInline(s.id)}\`:\n\n\`\`\`\n${escapeMdCode(s.output)}\n\`\`\`\n\n`
-          })
-        }
-
-        md += `---\n\n`
-      })
+          md += `---\n\n`
+        })
+      }
 
       if (includeCredsInExport && vaultCredentials.length > 0) {
         md += `## Anexo A — Bóveda de Credenciales\n\n`
@@ -691,83 +702,37 @@ export function useReportGeneration(
         md += buildHashMd(integrityHash)
       }
 
-      const sigBlock = buildSignatureMd(signature)
+      const sigBlock = buildSignatureMd(signatures)
       if (sigBlock) {
         md += sigBlock
       }
 
       return md
     },
-    [
-      target,
-      commandString,
-      scanDuration,
-      filteredData,
-      vaultCredentials,
-      redTeamNotes,
-      includeCredsInExport,
-      includeCvss,
-      signature,
-      parsedCommand,
-      readTimelineSnapshot,
-    ],
+    [target, commandString, scanDuration, filteredData, vaultCredentials, redTeamNotes, includeCredsInExport, includeCvss, signatures, parsedCommand, readTimelineSnapshot, includeMetrics, includeInventory],
   )
 
-  // ==========================================================
-  // generateHTML
-  //   FIX: `nowIso` es un PARÁMETRO. Mismo razonamiento que en
-  //   generateMarkdown: el reporte previsualizado debe quedar
-  //   congelado con el timestamp de apertura del modal.
-  // ==========================================================
   const generateHTML = useCallback(
     (integrityHash?: string, nowIso: string = new Date().toISOString()) => {
       const exec = computeExecutiveSummary(filteredData)
       const timeline = readTimelineSnapshot()
 
       const css = `
-        :root{
-          --c-dark:#0b282c;
-          --c-crit:#dc2626;
-          --c-high:#ea580c;
-          --c-med:#ca8a04;
-          --c-low:#2563eb;
-          --c-unknown:#64748b;
-          --c-border:#e2e8f0;
-          --c-bg-soft:#f8fafc;
-          --c-text:#0f172a;
-          --c-muted:#64748b;
-        }
-        *{box-sizing:border-box}
-        html{margin:0;padding:0;background:#f1f5f9;height:100%}
-        body{
-          margin:0;
-          padding:24px;
-          background:#f1f5f9;
-          font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-          color: var(--c-text);
-          font-size: 10pt;
-          line-height: 1.45;
-          min-height:100%;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-          overflow-y:auto;
-        }
+        :root{--c-dark:#0b282c;--c-crit:#dc2626;--c-high:#ea580c;--c-med:#ca8a04;--c-low:#2563eb;--c-unknown:#64748b;--c-border:#e2e8f0;--c-bg-soft:#f8fafc;--c-text:#0f172a;--c-muted:#64748b;}
+        *{box-sizing:border-box} html{margin:0;padding:0;background:#f1f5f9;height:100%}
+        body{margin:0;padding:24px;background:#f1f5f9;font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:var(--c-text);font-size:10pt;line-height:1.45;min-height:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact;overflow-y:auto;}
         .container{max-width:1200px;margin:0 auto}
-
         h1{font-size:20pt;font-weight:900;color:var(--c-dark);margin:0 0 6px;letter-spacing:-0.02em;text-transform:uppercase}
         h2{font-size:13pt;font-weight:800;color:var(--c-dark);margin:26px 0 10px;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--c-dark);padding-bottom:4px}
         h3{font-size:12pt;font-weight:800;color:var(--c-dark);margin:20px 0 8px}
         h4{font-size:10.5pt;font-weight:700;color:#1e293b;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.03em}
-
         .meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:16px}
         .meta-item{background:var(--c-bg-soft);padding:10px 12px;border-radius:6px;border:1px solid var(--c-border)}
         .meta-label{font-size:7.5pt;text-transform:uppercase;color:var(--c-muted);font-weight:700;letter-spacing:.05em;display:block;margin-bottom:2px}
         .meta-value{font-size:9.5pt;font-weight:600;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;color:#334155;word-break:break-all}
-
         .section{background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid var(--c-border);padding:18px 20px;margin-bottom:22px;page-break-inside:avoid}
         .section-flat{background:#fff;border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid var(--c-border);margin-bottom:22px;overflow:hidden;page-break-inside:avoid}
         .section-title{background:var(--c-dark);color:#fff;padding:8px 16px;font-size:10.5pt;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
-
         .exec-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
         .exec-item{padding:12px 8px;border-radius:8px;text-align:center;border:2px solid}
         .exec-item .num{display:block;font-size:22pt;font-weight:900;line-height:1;margin-bottom:4px}
@@ -777,55 +742,32 @@ export function useReportGeneration(
         .sev-medium{background:#fefce8;color:var(--c-med);border-color:var(--c-med)}
         .sev-low{background:#eff6ff;color:var(--c-low);border-color:var(--c-low)}
         .sev-unknown{background:var(--c-bg-soft);color:var(--c-unknown);border-color:var(--c-unknown)}
-
         table{width:100%;border-collapse:collapse;font-size:9.5pt}
-        thead th{
-          background:var(--c-bg-soft);
-          color:var(--c-muted);
-          font-size:8pt;
-          font-weight:800;
-          text-transform:uppercase;
-          letter-spacing:.05em;
-          padding:8px 10px;
-          text-align:left;
-          border-bottom:2px solid var(--c-border);
-        }
+        thead th{background:var(--c-bg-soft);color:var(--c-muted);font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:8px 10px;text-align:left;border-bottom:2px solid var(--c-border);}
         tbody td{padding:8px 10px;border-bottom:1px solid var(--c-border);vertical-align:top;word-break:break-word}
         tbody tr:hover{background:#f8fafc}
         tbody tr:last-child td{border-bottom:none}
         table.compact{font-size:9pt}
         table.compact tbody td{padding:6px 8px}
         code{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:9pt;background:#f1f5f9;padding:1px 5px;border-radius:3px;color:#0f172a}
-
         .badge{display:inline-block;padding:2px 8px;border-radius:9999px;font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
         .badge.up{background:#dcfce7;color:#166534;border:1px solid #22c55e}
         .badge.down{background:#fee2e2;color:#991b1b;border:1px solid #ef4444}
         .badge.cve{background:#fef2f2;color:var(--c-crit);border:1px solid var(--c-crit)}
-
         .cve-pill{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:5px;font-size:8.5pt;font-weight:700;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;border:1px solid;white-space:nowrap;margin:1px 2px 1px 0}
-        .cve-pill.sev-critical{background:#fee2e2;color:#991b1b;border-color:#ef4444}
-        .cve-pill.sev-high{background:#ffedd5;color:#9a3412;border-color:#f97316}
-        .cve-pill.sev-medium{background:#fef9c3;color:#854d0e;border-color:#eab308}
-        .cve-pill.sev-low{background:#dbeafe;color:#1e40af;border-color:#3b82f6}
-        .cve-pill.sev-unknown{background:#f1f5f9;color:#475569;border-color:#94a3b8}
-
         .cve-desc{font-size:9pt;color:#475569;line-height:1.4}
         .script-block{background:#0b1120;color:#10b981;padding:10px 12px;border-radius:6px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:8.5pt;white-space:pre-wrap;margin-top:6px;border-left:3px solid var(--c-dark);line-height:1.4}
         .script-title{color:#5eead4;font-weight:700;margin-bottom:4px;display:block;font-size:8.5pt}
-
         .scope-list{list-style:none;padding:0;margin:0}
         .scope-list li{padding:4px 0;border-bottom:1px dashed var(--c-border)}
         .scope-list li:last-child{border-bottom:none}
-
         .hash-box{background:#0b1120;color:#5eead4;padding:10px 12px;border-radius:6px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:8.5pt;word-break:break-all;line-height:1.4}
         .hash-box .algo{color:#fbbf24;font-weight:700}
-
         .sig-block{background:var(--c-bg-soft);border:1px solid var(--c-border);border-radius:8px;padding:16px 20px}
         .sig-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
         .sig-item .lbl{font-size:7.5pt;text-transform:uppercase;color:var(--c-muted);font-weight:700;letter-spacing:.05em;display:block;margin-bottom:4px}
         .sig-item .val{font-size:10.5pt;font-weight:700;color:var(--c-dark);border-bottom:1px solid var(--c-dark);padding-bottom:2px;min-height:18px}
         .sig-line{margin-top:22px;border-top:1px solid #94a3b8;width:280px;padding-top:4px;font-size:8pt;color:var(--c-muted);text-transform:uppercase;letter-spacing:.05em}
-
         @media print {
           body{background:#fff;padding:0;font-size:9.5pt}
           .section,.section-flat{box-shadow:none;page-break-inside:avoid}
@@ -838,7 +780,6 @@ export function useReportGeneration(
 
       let html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>LESSSO C2 Report — ${escapeHtml(target)}</title><style>${css}</style></head><body><div class="container">`
 
-      // 0. SCOPE
       html += `<h2>Scope &amp; Metodología</h2>`
       html += `<div class="section">`
       html += `<h3 style="margin-top:0">Target(s)</h3>`
@@ -888,7 +829,6 @@ export function useReportGeneration(
 
       html += `</div>`
 
-      // 1. PORTADA
       html += `<div class="section">
         <h1>LESSSO C2 — Security Report</h1>
         <p style="color:var(--c-muted);font-size:10pt;margin:0 0 14px">Informe de auditoría de seguridad generado automáticamente</p>
@@ -901,239 +841,218 @@ export function useReportGeneration(
         </div>
       </div>`
 
-      // 1.5. TIMELINE DEL EXAMEN
       html += buildTimelineHtml(timeline)
 
-      // 2. MÉTRICAS
-      html += `<h2>Métricas del Escaneo</h2>`
-      html += `<div class="section-flat"><table class="compact">
-        <thead><tr><th>Métrica</th><th style="width:180px">Valor</th></tr></thead>
-        <tbody>
-          <tr><td><strong>Hosts totales</strong></td><td>${exec.metrics.totalHosts}</td></tr>
-          <tr><td><strong>Hosts activos</strong></td><td>${exec.metrics.upHosts}</td></tr>
-          <tr><td><strong>Puertos abiertos</strong></td><td>${exec.metrics.openPorts} / ${exec.metrics.totalPorts}</td></tr>
-          <tr><td><strong>Servicios únicos</strong></td><td>${exec.metrics.uniqueServices}</td></tr>
-          <tr><td><strong>CVEs totales</strong></td><td><strong>${exec.metrics.totalCves}</strong></td></tr>
-          <tr><td><strong>CVEs críticos</strong></td><td><strong style="color:var(--c-crit)">${exec.metrics.cvesBySeverity.critical}</strong></td></tr>
-          <tr><td><strong>CVEs altos</strong></td><td><strong style="color:var(--c-high)">${exec.metrics.cvesBySeverity.high}</strong></td></tr>
-          <tr><td><strong>CVEs medios</strong></td><td><strong style="color:var(--c-med)">${exec.metrics.cvesBySeverity.medium}</strong></td></tr>
-          <tr><td><strong>CVEs bajos</strong></td><td><strong style="color:var(--c-low)">${exec.metrics.cvesBySeverity.low}</strong></td></tr>
-          <tr><td><strong>CVEs desconocidos</strong></td><td>${exec.metrics.cvesBySeverity.unknown}</td></tr>
-        </tbody>
-      </table></div>`
+      if (includeMetrics) {
+        html += `<h2>Métricas del Escaneo</h2>`
+        html += `<div class="section-flat"><table class="compact">
+          <thead><tr><th>Métrica</th><th style="width:180px">Valor</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Hosts totales</strong></td><td>${exec.metrics.totalHosts}</td></tr>
+            <tr><td><strong>Hosts activos</strong></td><td>${exec.metrics.upHosts}</td></tr>
+            <tr><td><strong>Puertos abiertos</strong></td><td>${exec.metrics.openPorts} / ${exec.metrics.totalPorts}</td></tr>
+            <tr><td><strong>Servicios únicos</strong></td><td>${exec.metrics.uniqueServices}</td></tr>
+            <tr><td><strong>CVEs totales</strong></td><td><strong>${exec.metrics.totalCves}</strong></td></tr>
+            <tr><td><strong>CVEs críticos</strong></td><td><strong style="color:var(--c-crit)">${exec.metrics.cvesBySeverity.critical}</strong></td></tr>
+            <tr><td><strong>CVEs altos</strong></td><td><strong style="color:var(--c-high)">${exec.metrics.cvesBySeverity.high}</strong></td></tr>
+            <tr><td><strong>CVEs medios</strong></td><td><strong style="color:var(--c-med)">${exec.metrics.cvesBySeverity.medium}</strong></td></tr>
+            <tr><td><strong>CVEs bajos</strong></td><td><strong style="color:var(--c-low)">${exec.metrics.cvesBySeverity.low}</strong></td></tr>
+            <tr><td><strong>CVEs desconocidos</strong></td><td>${exec.metrics.cvesBySeverity.unknown}</td></tr>
+          </tbody>
+        </table></div>`
 
-      // 3. RESUMEN EJECUTIVO
-      html += `<h2>Resumen Ejecutivo</h2>`
-      html += `<div class="section">
-        <div class="exec-grid">
-          <div class="exec-item sev-critical"><span class="num">${exec.global.crit}</span><span class="lbl">Críticos</span></div>
-          <div class="exec-item sev-high"><span class="num">${exec.global.high}</span><span class="lbl">Altos</span></div>
-          <div class="exec-item sev-medium"><span class="num">${exec.global.med}</span><span class="lbl">Medios</span></div>
-          <div class="exec-item sev-low"><span class="num">${exec.global.low}</span><span class="lbl">Bajos</span></div>
-          <div class="exec-item sev-unknown"><span class="num">${exec.global.total}</span><span class="lbl">Total</span></div>
-        </div>
-      </div>`
-
-      if (exec.topServices.length > 0) {
-        html += `<h3>Top Servicios Expuestos</h3>
-        <div class="section-flat"><table class="compact">
-          <thead><tr><th style="width:40px">#</th><th>Servicio</th><th style="width:140px">Puertos abiertos</th></tr></thead>
-          <tbody>`
-        exec.topServices.forEach((s, i) => {
-          html += `<tr><td>${i + 1}</td><td><strong>${escapeHtml(s.name)}</strong></td><td>${s.count}</td></tr>`
-        })
-        html += `</tbody></table></div>`
-      }
-
-      if (exec.topCves.length > 0) {
-        html += `<h3>Top CVEs Críticos</h3>
-        <div class="section-flat"><table>
-          <thead><tr>
-            <th>CVE</th>
-            <th style="width:110px">Severidad</th>
-            ${includeCvss ? `<th style="width:120px">CVSS</th>` : ''}
-            <th>Descripción</th>
-          </tr></thead>
-          <tbody>`
-        exec.topCves.forEach((c) => {
-          const sevCls = SEVERITY_HTML_CLASS[c.severity] || 'sev-unknown'
-          html += `<tr>
-            <td>${cveHtmlLink(c.id)}</td>
-            <td><span class="cve-pill ${sevCls}">${escapeHtml(SEVERITY_LABEL[c.severity])}</span></td>
-            ${includeCvss ? `<td>${cvssHtmlPill(c.cvss)}</td>` : ''}
-            <td><div class="cve-desc">${c.description ? escapeHtml(c.description) : '-'}</div></td>
-          </tr>`
-        })
-        html += `</tbody></table></div>`
-      }
-
-      // 4. RESUMEN DE HOSTS
-      html += `<h2>Resumen de Hosts</h2>`
-      html += `<div class="section-flat"><table class="compact">
-        <thead><tr>
-          <th>IP</th><th>Hostname</th><th>SO</th><th>MAC</th>
-          <th style="width:80px">Abiertos</th>
-          <th style="width:70px">Crít</th>
-          <th style="width:70px">Altos</th>
-          <th style="width:70px">Medios</th>
-          <th style="width:80px">Total CVEs</th>
-        </tr></thead>
-        <tbody>`
-      filteredData.forEach((h) => {
-        const cves = collectHostCves(h)
-        const openCount = (h.ports || []).filter((p) => p.state === 'open').length
-        html += `<tr>
-          <td><code>${escapeHtml(h.ip)}</code></td>
-          <td>${escapeHtml(h.hostname || '-')}</td>
-          <td>${escapeHtml(h.os || '-')}</td>
-          <td><code style="font-size:8pt">${escapeHtml(h.mac || '-')}</code></td>
-          <td>${openCount}</td>
-          <td><strong style="color:var(--c-crit)">${cves.crit}</strong></td>
-          <td><strong style="color:var(--c-high)">${cves.high}</strong></td>
-          <td><strong style="color:var(--c-med)">${cves.med}</strong></td>
-          <td><strong>${cves.total}</strong></td>
-        </tr>`
-      })
-      html += `</tbody></table></div>`
-
-      // 5. DETALLE POR HOST
-      html += `<h2>Detalle por Host</h2>`
-
-      filteredData.forEach((host) => {
-        const hostCves = collectHostCves(host)
-        const portsWithCves: PortWithCves[] = (host.ports || []).map((port) => ({
-          port,
-          cves: collectPortCves(port),
-        }))
-        const statusClass = host.status === 'up' ? 'up' : 'down'
-
-        html += `<div class="section-flat">`
-        html += `<div class="section-title">${escapeHtml(host.ip)} ${host.hostname ? `— ${escapeHtml(host.hostname)}` : ''}
-          <span style="float:right">
-            <span class="badge ${statusClass}">${escapeHtml(host.status)}</span>
-            ${hostCves.total > 0 ? `<span class="badge cve" style="margin-left:4px">${hostCves.total} CVEs</span>` : ''}
-          </span>
-        </div>`
-
-        html += `<div style="padding:14px 18px;border-bottom:1px solid var(--c-border)">
-          <div class="meta-grid" style="margin-top:0">
-            <div class="meta-item"><span class="meta-label">SO</span><span class="meta-value">${escapeHtml(host.os || 'Desconocido')}${host.os_accuracy ? ` (${escapeHtml(host.os_accuracy)}%)` : ''}</span></div>
-            <div class="meta-item"><span class="meta-label">MAC</span><span class="meta-value">${escapeHtml(host.mac || '-')}${host.mac_vendor ? ` · ${escapeHtml(host.mac_vendor)}` : ''}</span></div>
-            ${host.uptime_seconds ? `<div class="meta-item"><span class="meta-label">Uptime</span><span class="meta-value">${Math.floor(host.uptime_seconds / 3600)}h</span></div>` : ''}
-            ${host.distance ? `<div class="meta-item"><span class="meta-label">Saltos</span><span class="meta-value">${host.distance}</span></div>` : ''}
+        html += `<h2>Resumen Ejecutivo</h2>`
+        html += `<div class="section">
+          <div class="exec-grid">
+            <div class="exec-item sev-critical"><span class="num">${exec.global.crit}</span><span class="lbl">Críticos</span></div>
+            <div class="exec-item sev-high"><span class="num">${exec.global.high}</span><span class="lbl">Altos</span></div>
+            <div class="exec-item sev-medium"><span class="num">${exec.global.med}</span><span class="lbl">Medios</span></div>
+            <div class="exec-item sev-low"><span class="num">${exec.global.low}</span><span class="lbl">Bajos</span></div>
+            <div class="exec-item sev-unknown"><span class="num">${exec.global.total}</span><span class="lbl">Total</span></div>
           </div>
         </div>`
 
-        if (portsWithCves.length > 0) {
-          html += `<div style="padding:14px 18px 4px"><h4>Puertos Detectados</h4></div>
-          <div style="overflow-x:auto"><table>
-            <thead><tr>
-              <th style="width:110px">Puerto/Proto</th>
-              <th style="width:90px">Estado</th>
-              <th>Servicio</th>
-              <th>Versión</th>
-              <th>CPE</th>
-              <th style="width:200px">CVEs</th>
-            </tr></thead>
+        if (exec.topServices.length > 0) {
+          html += `<h3>Top Servicios Expuestos</h3>
+          <div class="section-flat"><table class="compact">
+            <thead><tr><th style="width:40px">#</th><th>Servicio</th><th style="width:140px">Puertos abiertos</th></tr></thead>
             <tbody>`
-          portsWithCves.forEach(({ port, cves }) => {
-            const cpeStr =
-              port.cpe && port.cpe.length > 0
-                ? port.cpe
-                    .map((c) => `<code style="font-size:8pt;display:block;margin-bottom:2px">${escapeHtml(c)}</code>`)
-                    .join('')
-                : '<span style="color:#cbd5e1">-</span>'
-            const cveStr =
-              cves.length > 0
-                ? cves
-                    .map((c) => {
-                      const cls = SEVERITY_HTML_CLASS[c.severity] || 'sev-unknown'
-                      const score = c.cvss !== undefined ? `<span style="opacity:.75;font-size:8pt;font-weight:600">${c.cvss.toFixed(1)}</span>` : ''
-                      const url = nvdUrl(c.id)
-                      const inner = `${escapeHtml(c.id)}${score}`
-                      if (url && isSafeUrl(url)) {
-                        return `<a href="${escapeUrl(url)}" target="_blank" rel="noopener noreferrer" class="cve-pill ${cls}" style="text-decoration:none">${inner}</a>`
-                      }
-                      return `<span class="cve-pill ${cls}">${inner}</span>`
-                    })
-                    .join('')
-                : '<span style="color:#cbd5e1">-</span>'
-
-            html += `<tr>
-              <td><code>${escapeHtml(port.portid)}/${escapeHtml(port.protocol)}</code></td>
-              <td><strong style="color:${port.state === 'open' ? 'var(--c-crit)' : 'var(--c-muted)'}">${escapeHtml(port.state.toUpperCase())}</strong>
-                ${port.reason ? `<div style="font-size:7.5pt;color:var(--c-muted)">${escapeHtml(port.reason)}</div>` : ''}
-              </td>
-              <td><strong>${escapeHtml(port.service || '-')}</strong></td>
-              <td>${escapeHtml(port.version || '-')}</td>
-              <td>${cpeStr}</td>
-              <td>${cveStr}</td>
-            </tr>`
+          exec.topServices.forEach((s, i) => {
+            html += `<tr><td>${i + 1}</td><td><strong>${escapeHtml(s.name)}</strong></td><td>${s.count}</td></tr>`
           })
           html += `</tbody></table></div>`
-        } else {
-          html += `<div style="padding:14px 18px;color:var(--c-muted);font-style:italic">Sin puertos detectados.</div>`
         }
 
-        if (hostCves.total > 0) {
-          html += `<div style="padding:14px 18px 4px"><h4>Vulnerabilidades Detectadas</h4></div>
-          <div style="overflow-x:auto"><table>
+        if (exec.topCves.length > 0) {
+          html += `<h3>Top CVEs Críticos</h3>
+          <div class="section-flat"><table>
             <thead><tr>
-              <th style="width:180px">CVE</th>
-              <th style="width:100px">Severidad</th>
-              ${includeCvss ? `<th style="width:130px">CVSS</th>` : ''}
-              <th style="width:130px">CWE</th>
-              <th style="width:80px">Fuente</th>
+              <th>CVE</th>
+              <th style="width:110px">Severidad</th>
+              ${includeCvss ? `<th style="width:120px">CVSS</th>` : ''}
               <th>Descripción</th>
             </tr></thead>
             <tbody>`
-          hostCves.cves.forEach((c) => {
+          exec.topCves.forEach((c) => {
             const sevCls = SEVERITY_HTML_CLASS[c.severity] || 'sev-unknown'
-            const src =
-              c.source === 'nvd' || c.source === 'cpe'
-                ? 'NVD'
-                : c.source === 'cache'
-                  ? 'cache'
-                  : 'heur.'
             html += `<tr>
               <td>${cveHtmlLink(c.id)}</td>
               <td><span class="cve-pill ${sevCls}">${escapeHtml(SEVERITY_LABEL[c.severity])}</span></td>
               ${includeCvss ? `<td>${cvssHtmlPill(c.cvss)}</td>` : ''}
-              <td>${c.cwe && c.cwe.length > 0 ? escapeHtml(c.cwe.join(', ')) : '-'}</td>
-              <td>${escapeHtml(src)}</td>
               <td><div class="cve-desc">${c.description ? escapeHtml(c.description) : '-'}</div></td>
             </tr>`
           })
           html += `</tbody></table></div>`
         }
+      }
 
-        const portsWithScripts = (host.ports || []).filter(
-          (p) => p.scripts && p.scripts.length > 0,
-        )
-        if (portsWithScripts.length > 0) {
-          html += `<div style="padding:14px 18px 4px"><h4>Scripts de Puertos</h4></div>
-          <div style="padding:0 18px 14px">`
-          portsWithScripts.forEach((p) => {
-            p.scripts!.forEach((s) => {
-              html += `<div class="script-block"><span class="script-title">↳ ${escapeHtml(p.portid)}/${escapeHtml(p.protocol)} — ${escapeHtml(s.id)}</span>${escapeHtml(s.output)}</div>`
+      if (includeInventory) {
+        html += `<h2>Resumen de Hosts</h2>`
+        html += `<div class="section-flat"><table class="compact">
+          <thead><tr>
+            <th>IP</th><th>Hostname</th><th>SO</th><th>MAC</th>
+            <th style="width:80px">Abiertos</th>
+            <th style="width:70px">Crít</th>
+            <th style="width:70px">Altos</th>
+            <th style="width:70px">Medios</th>
+            <th style="width:80px">Total CVEs</th>
+          </tr></thead>
+          <tbody>`
+        filteredData.forEach((h) => {
+          const cves = collectHostCves(h)
+          const openCount = (h.ports || []).filter((p) => p.state === 'open').length
+          html += `<tr>
+            <td><code>${escapeHtml(h.ip)}</code></td>
+            <td>${escapeHtml(h.hostname || '-')}</td>
+            <td>${escapeHtml(h.os || '-')}</td>
+            <td><code style="font-size:8pt">${escapeHtml(h.mac || '-')}</code></td>
+            <td>${openCount}</td>
+            <td><strong style="color:var(--c-crit)">${cves.crit}</strong></td>
+            <td><strong style="color:var(--c-high)">${cves.high}</strong></td>
+            <td><strong style="color:var(--c-med)">${cves.med}</strong></td>
+            <td><strong>${cves.total}</strong></td>
+          </tr>`
+        })
+        html += `</tbody></table></div>`
+
+        html += `<h2>Detalle por Host</h2>`
+
+        filteredData.forEach((host) => {
+          const hostCves = collectHostCves(host)
+          const portsWithCves: PortWithCves[] = (host.ports || []).map((port) => ({
+            port,
+            cves: collectPortCves(port),
+          }))
+          const statusClass = host.status === 'up' ? 'up' : 'down'
+
+          html += `<div class="section-flat">`
+          html += `<div class="section-title">${escapeHtml(host.ip)} ${host.hostname ? `— ${escapeHtml(host.hostname)}` : ''}
+            <span style="float:right">
+              <span class="badge ${statusClass}">${escapeHtml(host.status)}</span>
+              ${hostCves.total > 0 ? `<span class="badge cve" style="margin-left:4px">${hostCves.total} CVEs</span>` : ''}
+            </span>
+          </div>`
+
+          html += `<div style="padding:14px 18px;border-bottom:1px solid var(--c-border)">
+            <div class="meta-grid" style="margin-top:0">
+              <div class="meta-item"><span class="meta-label">SO</span><span class="meta-value">${escapeHtml(host.os || 'Desconocido')}${host.os_accuracy ? ` (${escapeHtml(host.os_accuracy)}%)` : ''}</span></div>
+              <div class="meta-item"><span class="meta-label">MAC</span><span class="meta-value">${escapeHtml(host.mac || '-')}${host.mac_vendor ? ` · ${escapeHtml(host.mac_vendor)}` : ''}</span></div>
+              ${host.uptime_seconds ? `<div class="meta-item"><span class="meta-label">Uptime</span><span class="meta-value">${Math.floor(host.uptime_seconds / 3600)}h</span></div>` : ''}
+              ${host.distance ? `<div class="meta-item"><span class="meta-label">Saltos</span><span class="meta-value">${host.distance}</span></div>` : ''}
+            </div>
+          </div>`
+
+          if (portsWithCves.length > 0) {
+            html += `<div style="padding:14px 18px 4px"><h4>Puertos Detectados</h4></div>
+            <div style="overflow-x:auto"><table>
+              <thead><tr>
+                <th style="width:110px">Puerto/Proto</th>
+                <th style="width:90px">Estado</th>
+                <th>Servicio</th>
+                <th>Versión</th>
+                <th>CPE</th>
+                <th style="width:200px">CVEs</th>
+              </tr></thead>
+              <tbody>`
+            portsWithCves.forEach(({ port, cves }) => {
+              const cpeStr = port.cpe && port.cpe.length > 0 ? port.cpe.map((c) => `<code style="font-size:8pt;display:block;margin-bottom:2px">${escapeHtml(c)}</code>`).join('') : '<span style="color:#cbd5e1">-</span>'
+              const cveStr = cves.length > 0 ? cves.map((c) => {
+                const cls = SEVERITY_HTML_CLASS[c.severity] || 'sev-unknown'
+                const score = c.cvss !== undefined ? `<span style="opacity:.75;font-size:8pt;font-weight:600">${c.cvss.toFixed(1)}</span>` : ''
+                const url = nvdUrl(c.id)
+                const inner = `${escapeHtml(c.id)}${score}`
+                if (url && isSafeUrl(url)) { return `<a href="${escapeUrl(url)}" target="_blank" rel="noopener noreferrer" class="cve-pill ${cls}" style="text-decoration:none">${inner}</a>` }
+                return `<span class="cve-pill ${cls}">${inner}</span>`
+              }).join('') : '<span style="color:#cbd5e1">-</span>'
+
+              html += `<tr>
+                <td><code>${escapeHtml(port.portid)}/${escapeHtml(port.protocol)}</code></td>
+                <td><strong style="color:${port.state === 'open' ? 'var(--c-crit)' : 'var(--c-muted)'}">${escapeHtml(port.state.toUpperCase())}</strong>
+                  ${port.reason ? `<div style="font-size:7.5pt;color:var(--c-muted)">${escapeHtml(port.reason)}</div>` : ''}
+                </td>
+                <td><strong>${escapeHtml(port.service || '-')}</strong></td>
+                <td>${escapeHtml(port.version || '-')}</td>
+                <td>${cpeStr}</td>
+                <td>${cveStr}</td>
+              </tr>`
             })
-          })
+            html += `</tbody></table></div>`
+          } else {
+            html += `<div style="padding:14px 18px;color:var(--c-muted);font-style:italic">Sin puertos detectados.</div>`
+          }
+
+          if (hostCves.total > 0) {
+            html += `<div style="padding:14px 18px 4px"><h4>Vulnerabilidades Detectadas</h4></div>
+            <div style="overflow-x:auto"><table>
+              <thead><tr>
+                <th style="width:180px">CVE</th>
+                <th style="width:100px">Severidad</th>
+                ${includeCvss ? `<th style="width:130px">CVSS</th>` : ''}
+                <th style="width:130px">CWE</th>
+                <th style="width:80px">Fuente</th>
+                <th>Descripción</th>
+              </tr></thead>
+              <tbody>`
+            hostCves.cves.forEach((c) => {
+              const sevCls = SEVERITY_HTML_CLASS[c.severity] || 'sev-unknown'
+              const src = c.source === 'nvd' || c.source === 'cpe' ? 'NVD' : c.source === 'cache' ? 'cache' : 'heur.'
+              html += `<tr>
+                <td>${cveHtmlLink(c.id)}</td>
+                <td><span class="cve-pill ${sevCls}">${escapeHtml(SEVERITY_LABEL[c.severity])}</span></td>
+                ${includeCvss ? `<td>${cvssHtmlPill(c.cvss)}</td>` : ''}
+                <td>${c.cwe && c.cwe.length > 0 ? escapeHtml(c.cwe.join(', ')) : '-'}</td>
+                <td>${escapeHtml(src)}</td>
+                <td><div class="cve-desc">${c.description ? escapeHtml(c.description) : '-'}</div></td>
+              </tr>`
+            })
+            html += `</tbody></table></div>`
+          }
+
+          const portsWithScripts = (host.ports || []).filter((p) => p.scripts && p.scripts.length > 0)
+          if (portsWithScripts.length > 0) {
+            html += `<div style="padding:14px 18px 4px"><h4>Scripts de Puertos</h4></div>
+            <div style="padding:0 18px 14px">`
+            portsWithScripts.forEach((p) => {
+              p.scripts!.forEach((s) => {
+                html += `<div class="script-block"><span class="script-title">↳ ${escapeHtml(p.portid)}/${escapeHtml(p.protocol)} — ${escapeHtml(s.id)}</span>${escapeHtml(s.output)}</div>`
+              })
+            })
+            html += `</div>`
+          }
+
+          if (host.scripts && host.scripts.length > 0) {
+            html += `<div style="padding:14px 18px 4px"><h4>Host Script Output</h4></div>
+            <div style="padding:0 18px 14px">`
+            host.scripts.forEach((s) => {
+              html += `<div class="script-block"><span class="script-title">↳ ${escapeHtml(s.id)}</span>${escapeHtml(s.output)}</div>`
+            })
+            html += `</div>`
+          }
+
           html += `</div>`
-        }
+        })
+      }
 
-        if (host.scripts && host.scripts.length > 0) {
-          html += `<div style="padding:14px 18px 4px"><h4>Host Script Output</h4></div>
-          <div style="padding:0 18px 14px">`
-          host.scripts.forEach((s) => {
-            html += `<div class="script-block"><span class="script-title">↳ ${escapeHtml(s.id)}</span>${escapeHtml(s.output)}</div>`
-          })
-          html += `</div>`
-        }
-
-        html += `</div>`
-      })
-
-      // 6. ANEXOS
       if (includeCredsInExport && vaultCredentials.length > 0) {
         html += `<h2>Anexo A — Bóveda de Credenciales</h2>
         <div class="section-flat">
@@ -1156,7 +1075,6 @@ export function useReportGeneration(
         <div class="section" style="white-space:pre-wrap;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:9pt;color:#334155">${escapeHtml(redTeamNotes)}</div>`
       }
 
-      // 7. HASH + FIRMAS
       if (integrityHash) {
         html += `<h2>Integridad del Reporte</h2>
         <div class="section">
@@ -1171,44 +1089,55 @@ export function useReportGeneration(
         </div>`
       }
 
-      if (signature.name.trim()) {
-        const sigDate = signature.date || nowIso
-        html += `<h2>Firmas</h2>
-        <div class="sig-block">
-          <div class="sig-grid">
-            <div class="sig-item"><span class="lbl">Auditor</span><span class="val">${escapeHtml(signature.name)}</span></div>
-            ${signature.role.trim() ? `<div class="sig-item"><span class="lbl">Cargo</span><span class="val">${escapeHtml(signature.role)}</span></div>` : ''}
-            ${signature.company.trim() ? `<div class="sig-item"><span class="lbl">Empresa</span><span class="val">${escapeHtml(signature.company)}</span></div>` : ''}
-            <div class="sig-item"><span class="lbl">Fecha de firma (UTC)</span><span class="val" style="font-family:ui-monospace,monospace;font-size:9.5pt">${escapeHtml(sigDate)}</span></div>
-          </div>
-          <div class="sig-line">Firma</div>
-        </div>`
+      if (signatures.auditor?.name.trim()) {
+        const aud = signatures.auditor;
+        const rev = signatures.reviewer;
+        const dualMode = rev?.name.trim().length > 0;
+        
+        html += `<h2>Firmas de Aprobación</h2>`;
+        
+        if (dualMode) {
+          html += `<div style="display:flex;gap:20px;">`;
+          html += `<div class="sig-block" style="flex:1">
+            <div style="font-size:10pt;font-weight:900;margin-bottom:12px;color:var(--c-dark);text-transform:uppercase;">Auditor Principal</div>
+            <div class="sig-grid" style="grid-template-columns:1fr">
+              <div class="sig-item"><span class="lbl">Nombre</span><span class="val">${escapeHtml(aud.name)}</span></div>
+              ${aud.role.trim() ? `<div class="sig-item"><span class="lbl">Cargo</span><span class="val">${escapeHtml(aud.role)}</span></div>` : ''}
+              ${aud.company.trim() ? `<div class="sig-item"><span class="lbl">Empresa</span><span class="val">${escapeHtml(aud.company)}</span></div>` : ''}
+              <div class="sig-item"><span class="lbl">Fecha (UTC)</span><span class="val" style="font-family:monospace;font-size:9pt">${escapeHtml(aud.date || nowIso)}</span></div>
+            </div>
+            <div class="sig-line">Firma</div>
+          </div>`;
+          html += `<div class="sig-block" style="flex:1;background:#fff;border-style:dashed;">
+            <div style="font-size:10pt;font-weight:900;margin-bottom:12px;color:var(--c-dark);text-transform:uppercase;">Validador (QA)</div>
+            <div class="sig-grid" style="grid-template-columns:1fr">
+              <div class="sig-item"><span class="lbl">Nombre</span><span class="val">${escapeHtml(rev.name)}</span></div>
+              ${rev.role.trim() ? `<div class="sig-item"><span class="lbl">Cargo</span><span class="val">${escapeHtml(rev.role)}</span></div>` : ''}
+              ${rev.company.trim() ? `<div class="sig-item"><span class="lbl">Empresa</span><span class="val">${escapeHtml(rev.company)}</span></div>` : ''}
+              <div class="sig-item"><span class="lbl">Fecha (UTC)</span><span class="val" style="font-family:monospace;font-size:9pt">${escapeHtml(rev.date || nowIso)}</span></div>
+            </div>
+            <div class="sig-line">Firma QA</div>
+          </div>`;
+          html += `</div>`;
+        } else {
+          html += `<div class="sig-block">
+            <div class="sig-grid">
+              <div class="sig-item"><span class="lbl">Auditor</span><span class="val">${escapeHtml(aud.name)}</span></div>
+              ${aud.role.trim() ? `<div class="sig-item"><span class="lbl">Cargo</span><span class="val">${escapeHtml(aud.role)}</span></div>` : ''}
+              ${aud.company.trim() ? `<div class="sig-item"><span class="lbl">Empresa</span><span class="val">${escapeHtml(aud.company)}</span></div>` : ''}
+              <div class="sig-item"><span class="lbl">Fecha de firma (UTC)</span><span class="val" style="font-family:ui-monospace,monospace;font-size:9.5pt">${escapeHtml(aud.date || nowIso)}</span></div>
+            </div>
+            <div class="sig-line">Firma</div>
+          </div>`;
+        }
       }
 
       html += `</div></body></html>`
       return html
     },
-    [
-      target,
-      commandString,
-      scanDuration,
-      filteredData,
-      vaultCredentials,
-      redTeamNotes,
-      includeCredsInExport,
-      includeCvss,
-      signature,
-      parsedCommand,
-      readTimelineSnapshot,
-    ],
+    [target, commandString, scanDuration, filteredData, vaultCredentials, redTeamNotes, includeCredsInExport, includeCvss, signatures, parsedCommand, readTimelineSnapshot, includeMetrics, includeInventory],
   )
 
-  // ==========================================================
-  // buildJsonPayload(exportedAt)
-  //   FIX: el timestamp se recibe como parámetro para que el hash
-  //   sea reproducible durante toda la operación de exportación.
-  //   Añadimos `timeline` con snapshot congelado.
-  // ==========================================================
   const buildJsonPayload = useCallback(
     (exportedAt: string) => {
       const timeline = readTimelineSnapshot()
@@ -1219,13 +1148,12 @@ export function useReportGeneration(
         duration: scanDuration,
         hosts: filteredData,
         cves: collectGlobalCves(filteredData).cves,
-        vault:
-          includeCredsInExport && vaultCredentials.length > 0
-            ? vaultCredentials
-            : undefined,
+        vault: includeCredsInExport && vaultCredentials.length > 0 ? vaultCredentials : undefined,
         notes: redTeamNotes || undefined,
-        signature: signature.name.trim() ? signature : undefined,
+        signatures: signatures.auditor.name.trim() ? signatures : undefined,
         includeCvss,
+        include_metrics: includeMetrics,     // Se inyecta en el JSON
+        include_inventory: includeInventory, // Se inyecta en el JSON
         timeline: timeline.examStartAt
           ? {
               examStartAt: new Date(timeline.examStartAt).toISOString(),
@@ -1235,18 +1163,7 @@ export function useReportGeneration(
           : undefined,
       }
     },
-    [
-      target,
-      commandString,
-      scanDuration,
-      filteredData,
-      vaultCredentials,
-      redTeamNotes,
-      includeCredsInExport,
-      includeCvss,
-      signature,
-      readTimelineSnapshot,
-    ],
+    [target, commandString, scanDuration, filteredData, vaultCredentials, redTeamNotes, includeCredsInExport, includeCvss, signatures, readTimelineSnapshot, includeMetrics, includeInventory],
   )
 
   const handlePrint = useCallback(async () => {
@@ -1261,7 +1178,6 @@ export function useReportGeneration(
     setExpandedHosts(allHosts)
     setExpandedPorts(allPorts)
 
-    // Snapshot congelado: un único timestamp para toda la operación.
     const exportedAt = new Date().toISOString()
     const jsonPayload = JSON.stringify(buildJsonPayload(exportedAt), null, 2)
     const integrityHash = await sha256Hex(jsonPayload)
@@ -1305,26 +1221,13 @@ export function useReportGeneration(
       document.body.removeChild(a)
       setTimeout(() => URL.revokeObjectURL(url), 5000)
 
-      alert(
-        'La ventana de impresión fue bloqueada por el navegador.\n\n' +
-          'Se ha descargado el reporte como HTML. Ábrelo y usa Ctrl+P para imprimirlo.',
-      )
+      alert('La ventana de impresión fue bloqueada por el navegador.\n\nSe ha descargado el reporte como HTML. Ábrelo y usa Ctrl+P para imprimirlo.')
     }, 300)
-  }, [
-    filteredData,
-    generateHTML,
-    setExpandedHosts,
-    setExpandedPorts,
-    buildJsonPayload,
-  ])
+  }, [filteredData, generateHTML, setExpandedHosts, setExpandedPorts, buildJsonPayload])
 
-// ... (todo tu código previo de collectCves, formatHTML, buildJson, etc. se mantiene igual hasta handleSaveFile) ...
-
-const handleSaveFile = async (type: 'md' | 'html' | 'json'): Promise<boolean> => {
+  const handleSaveFile = async (type: 'md' | 'html' | 'json'): Promise<boolean> => {
     try {
       const extension = type === 'md' ? 'md' : type === 'html' ? 'html' : 'json'
-
-      // Snapshot congelado: un único timestamp para toda la exportación.
       const exportedAt = new Date().toISOString()
 
       let content: string
@@ -1336,39 +1239,27 @@ const handleSaveFile = async (type: 'md' | 'html' | 'json'): Promise<boolean> =>
       } else {
         const jsonPayload = JSON.stringify(buildJsonPayload(exportedAt), null, 2)
         const integrityHash = await sha256Hex(jsonPayload)
-        content = type === 'md'
-            ? generateMarkdown(integrityHash, exportedAt)
-            : generateHTML(integrityHash, exportedAt)
+        content = type === 'md' ? generateMarkdown(integrityHash, exportedAt) : generateHTML(integrityHash, exportedAt)
       }
 
-      const filePath = await save({
-        defaultPath: `lessso_c2_report_${Date.now()}.${extension}`,
-        filters: [{ name: 'Documento', extensions: [extension] }],
-      })
+      const filePath = await save({ defaultPath: `lessso_c2_report_${Date.now()}.${extension}`, filters: [{ name: 'Documento', extensions: [extension] }] })
       
       if (filePath) {
         await writeTextFile(filePath, content)
         alert(`✅ Reporte exportado exitosamente:\n${filePath}`)
-        return true // Retornamos true para avisarle al Modal que cierre
+        return true 
       }
-      return false // Si el usuario canceló la ventana de su sistema operativo
+      return false 
     } catch (e: any) {
       const errorMsg = e.message || String(e);
-      if (!errorMsg.toLowerCase().includes('cancel')) {
-        alert(`Ocurrió un problema al guardar el archivo:\n${errorMsg}`);
-      }
+      if (!errorMsg.toLowerCase().includes('cancel')) alert(`Ocurrió un problema al guardar el archivo:\n${errorMsg}`);
       return false
     }
   }
 
-
-
-
   const handleImport = async () => {
     try {
-      const selected = await open({
-        filters: [{ name: 'JSON Workspace', extensions: ['json'] }],
-      })
+      const selected = await open({ filters: [{ name: 'JSON Workspace', extensions: ['json'] }] })
       if (selected && !Array.isArray(selected)) {
         const contents = await readTextFile(selected)
         const parsed = JSON.parse(contents)
@@ -1378,18 +1269,10 @@ const handleSaveFile = async (type: 'md' | 'html' | 'json'): Promise<boolean> =>
       }
     } catch (err: any) {
       const errorMsg = err.message || String(err);
-      if (!errorMsg.toLowerCase().includes('cancel')) {
-        alert(`Ocurrió un problema al cargar el archivo:\n${errorMsg}`);
-      }
+      if (!errorMsg.toLowerCase().includes('cancel')) alert(`Ocurrió un problema al cargar el archivo:\n${errorMsg}`);
     }
   }
 
-
-
-  /**
-   * Calcula el hash de integridad de un snapshot congelado.
-   * @param exportedAt timestamp fijo (ISO) para toda la operación.
-   */
   const computeIntegrityHash = useCallback(
     async (exportedAt: string): Promise<string> => {
       const jsonPayload = JSON.stringify(buildJsonPayload(exportedAt), null, 2)
@@ -1398,13 +1281,5 @@ const handleSaveFile = async (type: 'md' | 'html' | 'json'): Promise<boolean> =>
     [buildJsonPayload],
   )
 
-  return {
-    generateMarkdown,
-    generateHTML,
-    handlePrint,
-    handleSaveFile,
-    handleImport,
-    computeIntegrityHash,
-    buildJsonPayload,
-  }
+  return { generateMarkdown, generateHTML, handlePrint, handleSaveFile, handleImport, computeIntegrityHash, buildJsonPayload }
 }
