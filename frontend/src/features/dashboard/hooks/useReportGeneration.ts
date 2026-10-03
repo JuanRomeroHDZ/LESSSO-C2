@@ -715,7 +715,6 @@ export function useReportGeneration(
       const exec = computeExecutiveSummary(filteredData)
       const timeline = readTimelineSnapshot()
 
-      // NOTA: Se eliminó el @import problemático que colapsaba el CSS en WebKitGTK
       const css = `
         :root{--c-dark:#0b282c;--c-crit:#dc2626;--c-high:#ea580c;--c-med:#ca8a04;--c-low:#2563eb;--c-unknown:#64748b;--c-border:#e2e8f0;--c-bg-soft:#f8fafc;--c-text:#0f172a;--c-muted:#64748b;}
         *{box-sizing:border-box} html{margin:0;padding:0;background:#f1f5f9;height:100%}
@@ -777,8 +776,8 @@ export function useReportGeneration(
         }
       `
 
-      // NOTA: Se inyecta la fuente de Google mediante una etiqueta <link> segura en el Head.
       let html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>LESSSO C2 Report — ${escapeHtml(target)}</title>`
+      html += `<meta http-equiv="Content-Security-Policy" content="default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline' https://fonts.googleapis.com; font-src * data: https://fonts.gstatic.com;">`
       html += `<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap" rel="stylesheet">`
       html += `<style>${css}</style></head><body><div class="container">`
 
