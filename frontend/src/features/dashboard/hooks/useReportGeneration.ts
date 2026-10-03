@@ -777,7 +777,6 @@ export function useReportGeneration(
       `
 
       let html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>LESSSO C2 Report — ${escapeHtml(target)}</title>`
-      html += `<meta http-equiv="Content-Security-Policy" content="default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline' https://fonts.googleapis.com; font-src * data: https://fonts.gstatic.com;">`
       html += `<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;800;900&display=swap" rel="stylesheet">`
       html += `<style>${css}</style></head><body><div class="container">`
 

@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { hashAlgorithmLabel } from "../utils/hash";
 import { Loader2 } from "lucide-react";
+import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { tempDir, join } from '@tauri-apps/api/path';
+import { convertFileSrc } from '@tauri-apps/api/core';
 
 interface PreviewModalProps {
   type: 'md' | 'html' | 'json';
@@ -24,16 +27,28 @@ export function PreviewModal({
   const [isSaving, setIsSaving] = useState(false);
   const [iframeSrc, setIframeSrc] = useState<string>('');
 
-  // Codificador seguro a Base64 (Soporta acentos y caracteres especiales de UTF-8)
   useEffect(() => {
-    if (type === 'html' && htmlContent) {
-      try {
-        const base64Html = btoa(unescape(encodeURIComponent(htmlContent)));
-        setIframeSrc(`data:text/html;charset=utf-8;base64,${base64Html}`);
-      } catch (err) {
-        console.error("Error codificando la vista previa:", err);
+    let isMounted = true;
+    const loadSecurePreview = async () => {
+      if (type === 'html' && htmlContent) {
+        try {
+          const tempPath = await tempDir();
+          const fileName = `lessso_preview_${Date.now()}.html`;
+          const filePath = await join(tempPath, fileName);
+          
+          await writeTextFile(filePath, htmlContent);
+          const assetUrl = convertFileSrc(filePath);
+          
+          if (isMounted) {
+            setIframeSrc(assetUrl);
+          }
+        } catch (err) {
+          console.error("Error generando archivo temporal de vista previa:", err);
+        }
       }
-    }
+    };
+    loadSecurePreview();
+    return () => { isMounted = false; };
   }, [type, htmlContent]);
 
   useEffect(() => {
@@ -67,7 +82,7 @@ export function PreviewModal({
     >
       <div className="bg-white dark:bg-[#0b1120] w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         
-        {/* HEADER LIMPIO */}
+        {/* HEADER */}
         <div className="flex justify-between items-center px-6 py-4 bg-slate-50 dark:bg-[#060a13] border-b border-slate-200 dark:border-slate-800 shrink-0">
           <div className="flex flex-wrap items-center gap-3">
             <h3 className="text-sm font-black uppercase tracking-widest text-slate-900 dark:text-white flex items-center gap-2">
@@ -84,7 +99,7 @@ export function PreviewModal({
           </button>
         </div>
 
-        {/* ÁREA DE PREVISUALIZACIÓN GIGANTE */}
+        {/* ÁREA DE PREVISUALIZACIÓN */}
         <div className="flex-1 min-h-0 overflow-hidden bg-slate-100 dark:bg-[#020617] p-4 sm:p-6 relative">
           {isSaving && (
             <div className="absolute inset-0 z-10 bg-white/60 dark:bg-[#020617]/60 backdrop-blur-sm flex flex-col items-center justify-center">
@@ -106,13 +121,17 @@ export function PreviewModal({
           )}
 
           {type === 'html' && (
-            <div className="w-full h-full rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-inner bg-white">
-              {iframeSrc && (
-                <iframe 
-                  title="Preview HTML" 
-                  src={iframeSrc} 
-                  className="w-full h-full border-0 block bg-white" 
+            <div className="w-full h-full rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-inner bg-white relative">
+              {iframeSrc ? (
+                <iframe
+                  title="Preview HTML"
+                  src={iframeSrc}
+                  className="w-full h-full border-0 block bg-white"
                 />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-slate-500">
+                  <Loader2 className="animate-spin mr-2" /> Cargando vista previa...
+                </div>
               )}
             </div>
           )}

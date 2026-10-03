@@ -8,7 +8,6 @@ import {
   clearVaultSession,
 } from './vaultSession'
 
-// Independizamos el modelo de la Bóveda y lo expandimos
 export interface VaultCred {
   id: string;
   target: string;
@@ -21,13 +20,15 @@ export interface VaultCred {
 }
 
 export interface VaultState {
+  vaultName: string;
   vaultCredentials: VaultCred[];
   encryptedVaultData: string;
   isVaultUnlocked: boolean;
 
   unlockVault: (pwd: string) => Promise<boolean>;
   lockVault: () => void;
-  setMasterPassword: (pwd: string) => Promise<void>;
+  destroyVault: () => void;
+  setMasterPassword: (name: string, pwd: string) => Promise<void>;
   addVaultCred: (cred: Omit<VaultCred, 'id'>) => Promise<void>;
   updateVaultCred: (id: string, patch: Partial<VaultCred>) => Promise<void>;
   removeVaultCred: (id: string) => Promise<void>;
@@ -36,6 +37,7 @@ export interface VaultState {
 export const useVaultStore = create<VaultState>()(
   persist(
     (set, get) => ({
+      vaultName: 'Bóveda Táctica',
       vaultCredentials: [],
       encryptedVaultData: '',
       isVaultUnlocked: false,
@@ -72,7 +74,18 @@ export const useVaultStore = create<VaultState>()(
         });
       },
 
-      setMasterPassword: async (pwd: string) => {
+      destroyVault: () => {
+        // Opción nuclear: borra todo el estado local para empezar de cero
+        clearVaultSession();
+        set({
+          vaultCredentials: [],
+          encryptedVaultData: '',
+          isVaultUnlocked: false,
+          vaultName: 'Bóveda Táctica',
+        });
+      },
+
+      setMasterPassword: async (name: string, pwd: string) => {
         const s = get();
         const toEncrypt = JSON.stringify(s.vaultCredentials);
         const encrypted = await invoke<string>('encrypt_vault', {
@@ -83,6 +96,7 @@ export const useVaultStore = create<VaultState>()(
         set({
           encryptedVaultData: encrypted,
           isVaultUnlocked: true,
+          vaultName: name || 'Bóveda Táctica',
         });
       },
 
@@ -142,6 +156,7 @@ export const useVaultStore = create<VaultState>()(
       name: 'lessso-c2-vaultStore',
       partialize: (state) => ({
         encryptedVaultData: state.encryptedVaultData,
+        vaultName: state.vaultName, // Persistimos el nombre
       }),
     }
   )

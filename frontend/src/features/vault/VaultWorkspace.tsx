@@ -8,8 +8,8 @@ import type { VaultCred } from '../../core/store/vaultStore';
 
 export function VaultWorkspace() {
   const {
-    vaultCredentials, addVaultCred, updateVaultCred, removeVaultCred, isVaultUnlocked,
-    encryptedVaultData, setMasterPassword, unlockVault, lockVault,
+    vaultName, vaultCredentials, addVaultCred, updateVaultCred, removeVaultCred, isVaultUnlocked,
+    encryptedVaultData, setMasterPassword, unlockVault, lockVault, destroyVault
   } = useScanStore();
 
   const [target, setTarget] = useState('');
@@ -20,6 +20,7 @@ export function VaultWorkspace() {
   const [tags, setTags] = useState<string[]>([]);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
+  const [vaultNameInput, setVaultNameInput] = useState('');
   const passwordRef = useRef('');
   const [passwordVisible, setPasswordVisible] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -39,21 +40,28 @@ export function VaultWorkspace() {
     const pwd = passwordRef.current;
     if (!pwd) { setErrorMsg('Introduce la contraseña.'); return; }
     const success = await unlockVault(pwd);
-    if (!success) { setErrorMsg('Contraseña incorrecta.'); clearPassword(); }  
+    if (!success) { setErrorMsg('Contraseña incorrecta.'); clearPassword(); }   
     else { setErrorMsg(''); clearPassword(); }
   };
 
   const handleSetMaster = async () => {
     const pwd = passwordRef.current;
-    if (pwd.length < 4) { setErrorMsg('Muy corta (Mín. 4)'); return; }
+    if (pwd.length < 4) { setErrorMsg('Contraseña muy corta (Mín. 4)'); return; }
     try {
-      await setMasterPassword(pwd);
+      await setMasterPassword(vaultNameInput || 'Bóveda Táctica', pwd);
       setErrorMsg('');
       clearPassword();
     } catch (e) {
       console.error('setMasterPassword falló:', e);
       setErrorMsg('Error creando la bóveda.');
     }
+  };
+
+  const handleDestroy = () => {
+    destroyVault();
+    setErrorMsg('');
+    clearPassword();
+    setVaultNameInput('');
   };
 
   const handleAdd = async () => {
@@ -116,13 +124,16 @@ export function VaultWorkspace() {
 
   if (!isVaultUnlocked) {
     return (
-      <VaultLockScreen  
+      <VaultLockScreen   
         isNew={!encryptedVaultData}
+        vaultNameValue={vaultNameInput}
         passwordVisible={passwordVisible}
         errorMsg={errorMsg}
+        onNameChange={setVaultNameInput}
         onPasswordChange={handlePasswordChange}
         onUnlock={handleUnlock}
         onSetMaster={handleSetMaster}
+        onDestroy={handleDestroy}
       />
     );
   }
@@ -131,7 +142,7 @@ export function VaultWorkspace() {
     <div className="flex flex-col h-full bg-white dark:bg-[#020617] border-r border-slate-200 dark:border-slate-800/80 p-4 min-w-0">
       <div className="flex flex-col gap-3 mb-4 sm:mb-6">
         <h2 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-widest flex items-center gap-2 shrink-0">
-          <Unlock size={16} className="text-teal-500" /> Bóveda Táctica
+          <Unlock size={16} className="text-teal-500" /> {vaultName}
         </h2>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
           <button onClick={lockVault} className="justify-center px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 text-[10px] uppercase tracking-wider font-bold rounded-md transition-colors flex items-center gap-1.5"><Lock size={12}/> Bloquear</button>
@@ -148,7 +159,7 @@ export function VaultWorkspace() {
       )}
 
       <div className="shrink-0">
-        <VaultForm  
+        <VaultForm   
           target={target} setTarget={setTarget}
           type={type} setType={setType}
           username={username} setUsername={setUsername}
@@ -159,7 +170,7 @@ export function VaultWorkspace() {
       </div>
 
       <div className="flex-1 min-h-0 mt-4 overflow-hidden">
-        <VaultTable  
+        <VaultTable   
           credentials={vaultCredentials}
           revealed={revealed}
           onToggleReveal={toggleReveal}

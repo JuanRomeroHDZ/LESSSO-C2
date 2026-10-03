@@ -9,7 +9,7 @@ import { useScanStore } from '../../core/store/useScanStore';
 import { useUiStore, type ExamPhase } from '../../core/store/uiStore';
 import { Bold, Italic, Code, Heading1, Heading2, List, ListOrdered, Quote, Table as TableIcon, Minus, Link, Image, Edit3, Columns, Eye, Download, ClipboardPaste, FileTerminal, Target, Globe, KeyRound, ChevronDown, ShieldAlert, Images, X } from 'lucide-react';
 import { ExamTimer } from '../../components/layout/ExamTimer';
-import { EvidenceGallery } from './components/EvidenceGallery';
+import { EvidenceGallery, type ExtractedImage } from './components/EvidenceGallery';
 
 const ALLOWED_URL_PROTOCOLS = ['http', 'https', 'mailto', 'asset', 'tauri'];
 const sanitizeSchema = {
@@ -76,7 +76,7 @@ export function NotesPanel() {
   const [saveStatus, setSaveStatus] = useState(autoSaveEnabled ? 'Auto-Log Activo' : 'Guardado Manual');
   const [previewMode, setPreviewMode] = useState<'split' | 'edit' | 'preview'>('split');
   const [showPhaseLog, setShowPhaseLog] = useState(false);
-  
+   
   const [showGallery, setShowGallery] = useState(false);
   const [selectedImg, setSelectedImg] = useState<string | null>(null);
 
@@ -86,15 +86,55 @@ export function NotesPanel() {
 
   useEffect(() => { notesRef.current = redTeamNotes; }, [redTeamNotes]);
 
+  // Modificado: Ahora guardamos las coordenadas de inicio y fin del Markdown de la imagen
   const extractedImages = useMemo(() => {
     const regex = /!\[([^\]]*)\]\(([^)]+)\)/g;
-    const images: { alt: string, src: string }[] = [];
+    const images: ExtractedImage[] = [];
     let match;
     while ((match = regex.exec(redTeamNotes)) !== null) {
-      images.push({ alt: match[1], src: match[2] });
+      images.push({ 
+        alt: match[1], 
+        src: match[2], 
+        fullMatch: match[0],
+        startIndex: match.index,
+        endIndex: match.index + match[0].length
+      });
     }
     return images;
   }, [redTeamNotes]);
+
+  // Acciones de Galería Bidireccional
+  const handleDeleteImage = useCallback((index: number) => {
+    const img = extractedImages[index];
+    if (!img) return;
+    const newNotes = redTeamNotes.slice(0, img.startIndex) + redTeamNotes.slice(img.endIndex);
+    setRedTeamNotes(newNotes);
+    setSaveStatus('Imagen eliminada');
+  }, [extractedImages, redTeamNotes, setRedTeamNotes]);
+
+  const handleMoveImage = useCallback((index: number, direction: 'prev' | 'next') => {
+    if (direction === 'prev' && index === 0) return;
+    if (direction === 'next' && index === extractedImages.length - 1) return;
+    
+    const targetIndex = direction === 'prev' ? index - 1 : index + 1;
+    const img1 = extractedImages[index];
+    const img2 = extractedImages[targetIndex];
+    
+    // Determinamos cuál aparece primero en el texto para no romper el índice al recortar
+    const first = img1.startIndex < img2.startIndex ? img1 : img2;
+    const second = img1.startIndex < img2.startIndex ? img2 : img1;
+    
+    // Recortamos el texto e invertimos las imágenes
+    const newNotes = 
+      redTeamNotes.slice(0, first.startIndex) + 
+      second.fullMatch + 
+      redTeamNotes.slice(first.endIndex, second.startIndex) + 
+      first.fullMatch + 
+      redTeamNotes.slice(second.endIndex);
+      
+    setRedTeamNotes(newNotes);
+    setSaveStatus('Orden actualizado');
+  }, [extractedImages, redTeamNotes, setRedTeamNotes]);
 
   const handleChange = (val: string) => {
     setRedTeamNotes(val); setSaveStatus('Guardando...');
@@ -196,12 +236,12 @@ export function NotesPanel() {
 
   return (
     <div ref={panelRef} className="flex flex-col h-full min-h-[600px] flex-1 bg-slate-50 dark:bg-[#050505] bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] dark:bg-[radial-gradient(#262626_1px,transparent_1px)] [background-size:20px_20px] rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden relative" data-color-mode={theme}>
-      
+       
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800;900&display=swap');
         .font-poppins { font-family: 'Poppins', sans-serif; }
         .markdown-preview h1, .markdown-preview h2, .markdown-preview h3 { font-family: 'Poppins', sans-serif; letter-spacing: -0.02em; }
-        .dark .markdown-preview h1, .dark .markdown-preview h2, .dark .markdown-preview h3 { color: #e11d48; } 
+        .dark .markdown-preview h1, .dark .markdown-preview h2, .dark .markdown-preview h3 { color: #e11d48; }  
         .markdown-preview h1 { border-bottom: 2px solid #881337; padding-bottom: 6px; }
       `}</style>
 
@@ -245,7 +285,7 @@ export function NotesPanel() {
 
       {/* HEADER & TEMPLATES */}
       <div className="flex flex-wrap justify-between items-center gap-3 px-5 py-3 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-[#0a0a0a]/90 backdrop-blur-md shrink-0 relative z-10 shadow-sm">
-        
+         
         <div className="flex items-center gap-4">
           <h2 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-widest flex items-center gap-2 font-poppins">
             <FileTerminal size={16} className="text-rose-600 dark:text-rose-500"/> Bitácora Táctica
@@ -258,13 +298,13 @@ export function NotesPanel() {
 
         <div className="flex flex-wrap items-center gap-3">
           <span className={`text-[9px] font-bold uppercase tracking-wider ${autoSaveEnabled ? 'text-slate-500' : 'text-orange-500 animate-pulse'}`}>{saveStatus}</span>
-          
+           
           <button onClick={() => setShowGallery(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20 text-[10px] font-bold uppercase tracking-wider rounded-md hover:bg-indigo-500/20 transition-colors">
             <Images size={12}/> Galería ({extractedImages.length})
           </button>
 
           <button onClick={pasteAndInsertImage} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-bold uppercase rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"><ClipboardPaste size={12}/> Pegar (Ctrl+V)</button>
-          
+           
           <div className="relative group">
             <button className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[10px] font-bold uppercase rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Plantillas <ChevronDown size={12}/></button>
             <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-[#121212] border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl hidden group-hover:block z-50 overflow-hidden">
@@ -280,7 +320,7 @@ export function NotesPanel() {
 
       {/* EDITOR AREA */}
       <div className="flex-1 min-h-0 flex relative" onPasteCapture={handlePasteCapture}>
-        
+         
         {/* FLOATING TOOLBAR MINIMALISTA */}
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-3 py-2 bg-white/90 dark:bg-[#121212]/90 border border-slate-200 dark:border-slate-700 rounded-full shadow-2xl backdrop-blur-md">
           <ToolbarButton onClick={cmdBold} title="Negrita (Ctrl+B)"><Bold size={14}/></ToolbarButton>
@@ -330,11 +370,14 @@ export function NotesPanel() {
         )}
       </div>
 
+      {/* MODAL DE GALERÍA DE EVIDENCIAS */}
       {showGallery && (
-        <EvidenceGallery 
-          images={extractedImages} 
-          onClose={() => setShowGallery(false)} 
-          onSelectImage={(src) => setSelectedImg(src)} 
+        <EvidenceGallery  
+          images={extractedImages}  
+          onClose={() => setShowGallery(false)}  
+          onSelectImage={(src) => setSelectedImg(src)}  
+          onDeleteImage={handleDeleteImage}
+          onMoveImage={handleMoveImage}
         />
       )}
 
