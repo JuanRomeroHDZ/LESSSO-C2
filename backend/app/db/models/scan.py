@@ -6,6 +6,7 @@ from sqlalchemy import (
     ForeignKey,
     DateTime,
     Index,
+    Float,
 )
 from sqlalchemy.orm import relationship, declarative_base
 from datetime import datetime, timezone
@@ -15,13 +16,6 @@ Base = declarative_base()
 def _utc_now() -> datetime:
     """
     Devuelve un datetime *naive* en UTC.
-
-    ¿Por qué naive y no aware?
-    --------------------------
-    Column(DateTime) sin timezone=True genera TIMESTAMP WITHOUT TIME ZONE
-    en Postgres. Si le pasamos un datetime aware (con tzinfo), asyncpg
-    lanza:
-        DataError: invalid input for query argument
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -80,12 +74,11 @@ class PortModel(Base):
     reason = Column(String, nullable=True)
     service = Column(String, nullable=True)
     version = Column(String, nullable=True)
-
     cpe = Column(Text, nullable=True)
 
     host = relationship("HostModel", back_populates="ports")
     
-    # NUEVA RELACIÓN: Enlazamos el puerto con los Findings (CVEs normalizados)
+    # Relación normalizada hacia los CVEs
     findings = relationship(
         "FindingModel",
         back_populates="port",
@@ -96,3 +89,24 @@ class PortModel(Base):
     __table_args__ = (
         Index("ix_ports_service_version", "service", "version"),
     )
+
+# ==========================================================
+# NUEVO MODELO: Tabla normalizada para Hallazgos/CVEs
+# ==========================================================
+class FindingModel(Base):
+    __tablename__ = "findings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    port_id = Column(
+        Integer,
+        ForeignKey("ports.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    cve_id = Column(String, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    base_score = Column(Float, nullable=True)
+    severity = Column(String, nullable=True, index=True)
+    published_date = Column(String, nullable=True)
+    
+    port = relationship("PortModel", back_populates="findings")

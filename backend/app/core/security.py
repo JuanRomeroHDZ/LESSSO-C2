@@ -15,7 +15,12 @@ from app.db.models.user import UserModel
 # ==========================================================
 # CONFIGURACIONES DE SEGURIDAD
 # ==========================================================
-SECRET_KEY = os.getenv("SECRET_KEY", "lessso_c2_super_secret_dev_key_2026")
+# 🔴 [CORRECCIÓN CRÍTICA]: Eliminado el fallback inseguro. 
+# Si el entorno no provee una clave, la aplicación debe fallar inmediatamente.
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("Fallo Crítico: SECRET_KEY no está configurada en el entorno. No se puede iniciar de forma segura.")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12
 

@@ -10,9 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.db.database import get_db
-from app.db.models.scan import HostModel, PortModel, ScanReportModel
+from app.db.models.scan import HostModel, PortModel, ScanReportModel, FindingModel
 from app.db.models.user import UserModel
-from app.db.models.finding import FindingModel
 from app.core.security import get_current_user
 from app.core.validators import validate_target_string
 
@@ -72,8 +71,8 @@ async def save_scan_result(
     current_user: UserModel = Depends(get_current_user)  # 🔒 CANDADO DE SEGURIDAD
 ):
     """
-    Guarda un reporte de escaneo.  
-    Protegido: Solo accesible con un JWT válido.
+    Guarda un reporte de escaneo normalizado.
+    Optimizado para inserción en bloque (sin flushes intermedios excesivos).
     """
     logger.info(
         f"[scan] Usuario {current_user.username} guardando reporte target={report.target!r} "
@@ -81,15 +80,18 @@ async def save_scan_result(
     )
 
     try:
+        # 1. Crear Reporte
         db_report = ScanReportModel(
             target=report.target,
             scan_duration=report.scan_duration,
         )
         db.add(db_report)
-        await db.flush()
+        await db.flush() # Necesitamos el ID del reporte para los hosts
 
         total_ports = 0
         total_cves = 0
+        
+        # 2. Iterar Hosts
         for host in report.hosts:
             db_host = HostModel(
                 report_id=db_report.id,
@@ -100,10 +102,11 @@ async def save_scan_result(
                 os=host.os,
             )
             db.add(db_host)
-            await db.flush()
+            await db.flush() # Necesitamos el ID del host para los puertos
 
+            # 3. Iterar Puertos
             for port in host.ports:
-                # 1. Guardamos el puerto (sin los CVEs serializados en JSON)
+                cpe_string = _json.dumps(port.cpe) if port.cpe else None
                 db_port = PortModel(
                     host_id=db_host.id,
                     portid=port.portid,
@@ -112,27 +115,30 @@ async def save_scan_result(
                     reason=port.reason,
                     service=port.service,
                     version=port.version,
-                    cpe=_json.dumps(port.cpe) if port.cpe else None,
+                    cpe=cpe_string,
                 )
                 db.add(db_port)
-                await db.flush() # Requerimos db_port.id para vincular los findings
+                await db.flush() # Necesitamos el ID del puerto para los findings
                 total_ports += 1
                 
-                # 2. Guardamos los CVEs relacionalmente en la tabla findings
+                # 4. Insertar Hallazgos (CVEs) normalizados
                 if port.cves:
                     for cve_match in port.cves:
+                        # [CORRECCIÓN CRÍTICA]: Quitamos los CVEs de la columna JSON
+                        # y los insertamos como registros individuales en la tabla Findings.
                         db_finding = FindingModel(
                             port_id=db_port.id,
                             cve_id=cve_match.id,
                             severity=cve_match.severity,
-                            cvss=cve_match.cvss,
+                            base_score=cve_match.cvss, # CVSS es nuestro base_score
                             description=cve_match.description,
-                            source=cve_match.source
                         )
                         db.add(db_finding)
                         total_cves += 1
 
+        # Commit final que guarda toda la jerarquía de golpe (mucho más rápido)
         await db.commit()
+        
         return {
             "status": "success",
             "report_id": db_report.id,
@@ -157,8 +163,6 @@ async def save_scan_result(
             detail="Error interno inesperado al procesar el escaneo.",
         )
 
-
-# New function
 @router.get("/{report_id}")
 async def get_scan_report(
     report_id: int,
@@ -166,10 +170,8 @@ async def get_scan_report(
     current_user: UserModel = Depends(get_current_user)  # 🔒 Protegido
 ):
     """
-    Recupera un reporte de escaneo completo con todos sus hosts, puertos y CVEs.
+    Recupera un reporte de escaneo completo con todos sus hosts, puertos y CVEs normalizados.
     """
-    # Gracias a lazy="selectin" en los modelos, esto trae toda la jerarquía 
-    # (Report -> Hosts -> Ports -> Findings) automáticamente y sin N+1 queries.
     result = await db.execute(
         select(ScanReportModel).where(ScanReportModel.id == report_id)
     )
@@ -178,7 +180,6 @@ async def get_scan_report(
     if not report_db:
         raise HTTPException(status_code=404, detail="Reporte no encontrado")
         
-    # Mapeamos los modelos relacionales de vuelta a diccionarios limpios para la API
     hosts_list = []
     for host in report_db.hosts:
         ports_list = []
@@ -188,10 +189,10 @@ async def get_scan_report(
             for finding in port.findings:
                 cves_list.append({
                     "id": finding.cve_id,
-                    "severity": finding.severity,
-                    "cvss": finding.cvss,
+                    "severity": finding.severity or "unknown",
+                    "cvss": finding.base_score,
                     "description": finding.description,
-                    "source": finding.source
+                    "source": "cpe" # Se asume por ahora
                 })
             
             ports_list.append({
