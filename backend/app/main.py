@@ -7,9 +7,11 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api.routes import cve_router, auth_router, scans_router
+from app.api.routes import cve_router, auth_router, scans_router, jobs_router
 from app.db.database import engine
 from app.db.models import Base
+
+
 from app.services import cve_matcher
 from app.services.cve_cache import cve_cache
 

@@ -12,16 +12,16 @@ from sqlalchemy.future import select
 from app.db.database import get_db
 from app.db.models.user import UserModel
 
-# Configuraciones de Seguridad
-# En producción, SECRET_KEY debe venir del entorno. Para dev local, usamos un fallback seguro.
-SECRET_KEY = os.getenv("SECRET_KEY", "b3a2918b9588b39a48dc704c3e80eb0b3d681023a84b162624a938c11e500732")
+# ==========================================================
+# CONFIGURACIONES DE SEGURIDAD
+# ==========================================================
+SECRET_KEY = os.getenv("SECRET_KEY", "lessso_c2_super_secret_dev_key_2026")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12  # 12 horas para sesiones de auditoría
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 12
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# URL donde el frontend enviará las credenciales
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
+# Passlib detecta argon2-cffi y hace todo el trabajo por ti
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
@@ -43,10 +43,6 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme), 
     db: AsyncSession = Depends(get_db)
 ) -> UserModel:
-    """
-    Dependencia de FastAPI. Si una ruta la incluye, exige un JWT válido
-    y devuelve el objeto del usuario autenticado.
-    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Credenciales inválidas o token expirado",

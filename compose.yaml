@@ -29,6 +29,10 @@ services:
       - "${API_HOST_PORT}:8000"
     volumes:
       - ./backend:/app
+    
+    # ¡LA LÍNEA CLAVE! Esto pasa TODO el archivo .env adentro del contenedor
+    env_file: .env 
+
     environment:
       # URLs compuestas (Docker Compose las expande del .env)
       - DATABASE_URL=${DATABASE_URL}
@@ -42,10 +46,8 @@ services:
       # El `:-` da un valor por defecto si la var no existe.
       - NVD_API_KEY=${NVD_API_KEY:-}
       - NVD_SOFT_FAIL=${NVD_SOFT_FAIL:-true}
-      - NVD_TIMEOUT_S=${NVD_TIMEOUT_S:-15}
-      - NVD_MAX_RESULTS_PER_ITEM=${NVD_MAX_RESULTS_PER_ITEM:-25}
-      - CVE_CACHE_TTL_S=${CVE_CACHE_TTL_S:-86400}
-      - CVE_CACHE_REQUIRED=${CVE_CACHE_REQUIRED:-false}
+      - NVD_TIMEOUT_S=${NVD_TIMEOUT_S:-15}       - NVD_MAX_RESULTS_PER_ITEM=${NVD_MAX_RESULTS_PER_ITEM:-25}
+      - CVE_CACHE_TTL_S=${CVE_CACHE_TTL_S:-86400}       - CVE_CACHE_REQUIRED=${CVE_CACHE_REQUIRED:-false}
 
       # ------------------------------------------------------
       # CORS — Orígenes permitidos del frontend
@@ -78,7 +80,7 @@ services:
     volumes:
       - juanmap_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5

@@ -1,8 +1,10 @@
+// frontend/src/core/store/scanStore.ts
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { invoke } from '@tauri-apps/api/core'
 import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification'
 import { useUiStore } from './uiStore'
+import { apiFetch } from '../api' // <-- INTERCEPTOR HTTP AÑADIDO
 import type { CveMatch } from '../../features/dashboard/utils/cve'
 
 // ==========================================================
@@ -96,6 +98,10 @@ interface ScanState {
   onlyOpenPorts: boolean; osScanGuess: boolean; scriptDefault: boolean; minHostgroup: string; maxHostgroup: string;
   nmapOutputFormat: string; nmapOutputPrefix: string; nmapOutputDir: string;
   useRustScan: boolean;
+  
+  // -- Control asíncrono para FastAPI --
+  pollingIntervalId: number | null;
+  startBackendScan: () => Promise<void>;
 
   setTarget: (t: string) => void; setScanType: (t: 'syn' | 'tcp' | 'udp' | 'sctp' | 'ping' | 'ack' | 'window' | 'maimon') => void;
   setTiming: (t: number) => void; setDiscoveryMode: (m: string) => void; setField: (f: keyof ScanState, v: any) => void;
@@ -226,6 +232,87 @@ export const useScanStoreLocal = create<ScanState>()(
       commandString: 'nmap -sS -T4', isScanning: false, output: [], parsedData: [], historyData: [], progressText: '', scanDuration: '0s', savedProfiles: [], autoScanInterval: 0,
       onlyOpenPorts: false, osScanGuess: false, scriptDefault: false, minHostgroup: '', maxHostgroup: '', nmapOutputFormat: '', nmapOutputPrefix: 'lessso_scan', nmapOutputDir: '',
       useRustScan: false,
+      
+      pollingIntervalId: null,
+
+      // --- NUEVO FLUJO ASÍNCRONO ---
+      startBackendScan: async () => {
+        const state = get();
+        if (!state.target) {
+            get().appendOutput('[ERROR] Debes definir un target antes de escanear.');
+            return;
+        }
+
+        try {
+            set({ isScanning: true, progressText: 'Iniciando conexión segura con LESSSO Backend...', output: [] });
+
+            // 1. Enviar el trabajo al backend
+            const jobResponse = await apiFetch('/jobs/nmap', {
+                method: 'POST',
+                body: JSON.stringify({ target: state.target })
+            });
+
+            const jobId = jobResponse.job_id;
+            get().appendOutput(`[SYS] Motor de red activo. Job ID asignado: ${jobId}`);
+
+            // 2. Iniciar Polling
+            const intervalId = window.setInterval(async () => {
+                try {
+                    const statusData = await apiFetch(`/jobs/${jobId}`);
+                    
+                    if (statusData.status === 'RUNNING') {
+                         set({ progressText: `Ejecutando: ${statusData.command_executed || 'Escaneando puertos...'}` });
+                    } 
+                    else if (statusData.status === 'FAILED') {
+                         window.clearInterval(get().pollingIntervalId!);
+                         set({ isScanning: false, progressText: 'Fallo Crítico.', pollingIntervalId: null });
+                         get().appendOutput(`[ERROR] Motor reportó un fallo: ${statusData.error_message}`);
+                         get().playAudioAlert();
+                    }
+                    else if (statusData.status === 'COMPLETED') {
+                         window.clearInterval(get().pollingIntervalId!);
+                         set({ progressText: 'Extrayendo inteligencia...', pollingIntervalId: null });
+                         get().appendOutput(`[SYS] Escaneo completado. Sincronizando datos...`);
+
+                         // 3. Ya tenemos la ruta en FastAPI: GET /api/scans/{report_id}
+                         // Como no sabemos el report_id exacto aquí, idealmente la API debería
+                         // darnos el link al reporte dentro de statusData, o debemos hacer un GET al target.
+                         // Por ahora, detendremos el scan visualmente. En un fix rápido vincularemos esto.
+                         
+                         get().appendOutput('[SYS] Datos estructurados listos en la bóveda.');
+                         set({ isScanning: false, progressText: '' });
+                         get().notifyCompletion();
+                    }
+                } catch (err) {
+                    console.error("Error en polling:", err);
+                }
+            }, 3000);
+
+            set({ pollingIntervalId: intervalId });
+
+        } catch (error: any) {
+             get().appendOutput(`[ERROR] Imposible conectar: ${error.message}`);
+             set({ isScanning: false, progressText: '' });
+        }
+      },
+
+      cancelScan: async () => {
+        const intervalId = get().pollingIntervalId;
+        if (intervalId) {
+            window.clearInterval(intervalId);
+        }
+        
+        try {
+          if (!('__TAURI_INTERNALS__' in window)) {
+            set({ isScanning: false, progressText: '', pollingIntervalId: null });
+            get().appendOutput('\n[WARN] DETENIDO (Modo Web).');
+            return;
+          }
+          await invoke('cancel_nmap');
+          set({ isScanning: false, progressText: '', pollingIntervalId: null });
+          get().appendOutput('\n[WARN] DETENIDO POR EL OPERADOR.');
+        } catch { }
+      },
 
       setTarget: (t) => { set({ target: normalizeTarget(t) }); get().syncCommandString(); },
       setScanType: (t) => { if (t === 'ping') set({ useOSDetection: false, useServiceDetection: false, scanAllPorts: false, customPorts: '', topPorts: '', fastMode: false, nseCategory: '', nseArgs: '', aggressiveMode: false, customTcpFlags: '', dataString: '', dataHex: '', dataLength: '', scriptDefault: false, osScanGuess: false, onlyOpenPorts: false }); set({ scanType: t }); get().syncCommandString(); },
@@ -351,19 +438,6 @@ export const useScanStoreLocal = create<ScanState>()(
                 },
           ),
         })),
-
-      cancelScan: async () => {
-        try {
-          if (!('__TAURI_INTERNALS__' in window)) {
-            set({ isScanning: false, progressText: '' });
-            get().appendOutput('\n[WARN] DETENIDO (Modo Web Simulacro).');
-            return;
-          }
-          await invoke('cancel_nmap');
-          set({ isScanning: false, progressText: '' });
-          get().appendOutput('\n[WARN] DETENIDO POR EL USUARIO.');
-        } catch { }
-      },
 
       playAudioAlert: () => {
         const { soundEnabled, volume } = useUiStore.getState();
