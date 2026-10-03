@@ -32,11 +32,13 @@ class Settings:
     # ======================================================
     # BASE DE DATOS
     # ======================================================
-    # La inyecta Docker Compose desde el .env
-    DATABASE_URL: str = os.getenv(
-        "DATABASE_URL",
-        "postgresql+asyncpg://lessso_admin:CambiaEstaPasswordPorUnaSegura2024!@db:5432/lessso_c2_db",
-    )
+    # Exigimos que la URL sea inyectada por el entorno (.env o Docker).
+    # Si no existe, abortamos la ejecución de forma segura.
+    _db_url = os.getenv("DATABASE_URL")
+    if not _db_url:
+        raise RuntimeError("Fallo crítico de seguridad: DATABASE_URL no está configurada en el entorno.")
+    
+    DATABASE_URL: str = _db_url
 
     # ======================================================
     # REDIS (cache de CVEs)
@@ -53,11 +55,6 @@ class Settings:
     # NVD (National Vulnerability Database) API v2
     # ======================================================
     # https://nvd.nist.gov/developers/vulnerabilities
-    #
-    # Sin API key: 5 req / 30s.
-    # Con API key: 50 req / 30s.
-    # Si no hay key, dejamos la URL base igual y el matcher
-    # añadirá el header apiKey solo si está presente.
     NVD_API_KEY: str = os.getenv("NVD_API_KEY", "").strip()
 
     NVD_BASE_URL: str = os.getenv(
@@ -72,8 +69,6 @@ class Settings:
     NVD_MAX_RESULTS_PER_ITEM: int = _env_int("NVD_MAX_RESULTS_PER_ITEM", 25)
 
     # Si NVD falla, ¿devolvemos error o lista vacía?
-    # True  → 200 con lista vacía (el frontend usa fallback local)
-    # False → 502 Bad Gateway
     NVD_SOFT_FAIL: bool = _env_bool("NVD_SOFT_FAIL", True)
 
 

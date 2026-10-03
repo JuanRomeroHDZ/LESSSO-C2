@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 
 Base = declarative_base()
 
-
 def _utc_now() -> datetime:
     """
     Devuelve un datetime *naive* en UTC.
@@ -25,7 +24,6 @@ def _utc_now() -> datetime:
         DataError: invalid input for query argument
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
-
 
 class ScanReportModel(Base):
     __tablename__ = "scan_reports"
@@ -41,7 +39,6 @@ class ScanReportModel(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-
 
 class HostModel(Base):
     __tablename__ = "hosts"
@@ -67,7 +64,6 @@ class HostModel(Base):
         lazy="selectin",
     )
 
-
 class PortModel(Base):
     __tablename__ = "ports"
 
@@ -85,13 +81,17 @@ class PortModel(Base):
     service = Column(String, nullable=True)
     version = Column(String, nullable=True)
 
-    # --- Enriquecimiento CVE (opcional, se llena tras el match) ---
-    # Guardamos JSON serializado para no forzar un esquema rígido
-    # a los CVEs (que cambian según NVD).
-    cpe = Column(Text, nullable=True)      # JSON: string[]
-    cves = Column(Text, nullable=True)     # JSON: CveMatchOut[]
+    cpe = Column(Text, nullable=True)
 
     host = relationship("HostModel", back_populates="ports")
+    
+    # NUEVA RELACIÓN: Enlazamos el puerto con los Findings (CVEs normalizados)
+    findings = relationship(
+        "FindingModel",
+        back_populates="port",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     __table_args__ = (
         Index("ix_ports_service_version", "service", "version"),

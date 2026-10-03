@@ -1,17 +1,9 @@
 """
 Endpoints de CVEs.
 
-- POST /api/cves/match   → recibe items, devuelve CVEs.
-- GET  /api/cves/_status → diagnóstico del cache y del cliente NVD.
-- GET  /api/cves/{id}    → devuelve un CVE concreto (con cache).
-
-⚠ ORDEN IMPORTANTE:
-`/_status` debe declararse ANTES que `/{cve_id}`. FastAPI evalúa las
-rutas en orden de declaración, y si `/{cve_id}` va primero, captura
-`_status` como si fuera un ID (y devuelve 400 por formato inválido).
-
-Ambos son best-effort: si NVD falla y NVD_SOFT_FAIL=True, se
-devuelve 200 con listas vacías para no romper la UI.
+- POST /api/cves/match  → recibe items, devuelve CVEs.
+- GET  /api/cves/_status → diagnóstico seguro del cache.
+- GET  /api/cves/{id}   → devuelve un CVE concreto (con cache).
 """
 
 from __future__ import annotations
@@ -67,21 +59,18 @@ class MatchResponse(BaseModel):
 
 
 # ==========================================================
-# HEALTH / DIAGNÓSTICO
-# ----------------------------------------------------------
-# ⚠ DEBE IR ANTES que /{cve_id} (ver docstring del módulo).
+# HEALTH / DIAGNÓSTICO (Sanitizado)
 # ==========================================================
 @router.get("/_status")
 async def cve_status() -> dict[str, Any]:
     """
-    Pequeño endpoint de diagnóstico para saber si el cache y el
-    matcher están operativos.
+    Endpoint de diagnóstico ofuscado. Expone únicamente la 
+    disponibilidad operativa sin filtrar datos de infraestructura.
     """
     return {
+        "status": "operational",
         "cache_enabled": cve_cache.enabled,
         "nvd_key_configured": bool(settings.NVD_API_KEY),
-        "nvd_base_url": settings.NVD_BASE_URL,
-        "nvd_timeout_s": settings.NVD_TIMEOUT_S,
         "soft_fail": settings.NVD_SOFT_FAIL,
     }
 
@@ -91,10 +80,6 @@ async def cve_status() -> dict[str, Any]:
 # ==========================================================
 @router.post("/match", response_model=MatchResponse)
 async def match_cves(payload: MatchRequest) -> MatchResponse:
-    """
-    Recibe una lista de {service, version, cpe[]} y devuelve los
-    CVEs asociados (con cacheo en Redis).
-    """
     if not payload.items:
         return MatchResponse(results=[])
 
@@ -103,45 +88,52 @@ async def match_cves(payload: MatchRequest) -> MatchResponse:
     try:
         raw = await cve_matcher.match_items([i.model_dump() for i in payload.items])
     except httpx.HTTPError as exc:
-        logger.exception("[cves] Error HTTP contra NVD")
-        raise HTTPException(status_code=502, detail=f"NVD error: {exc}")
+        logger.exception("[cves] Error HTTP contra proveedor externo (NVD)")
+        raise HTTPException(
+            status_code=502, 
+            detail="Error de comunicación con el servicio externo de vulnerabilidades."
+        )
     except Exception as exc:
-        logger.exception("[cves] Error inesperado en match")
-        raise HTTPException(status_code=500, detail=f"Error interno: {exc}")
+        logger.exception("[cves] Error inesperado en el proceso de match")
+        raise HTTPException(
+            status_code=500, 
+            detail="Error interno procesando las correlaciones de vulnerabilidad."
+        )
 
     return MatchResponse(results=[MatchResultItem(**r) for r in raw])
 
 
 # ==========================================================
 # GET CVE POR ID
-# ----------------------------------------------------------
-# ⚠ DEBE IR DESPUÉS que /_status (ver docstring del módulo).
 # ==========================================================
 @router.get("/{cve_id}", response_model=Optional[CveMatchOut])
 async def get_cve(cve_id: str) -> Optional[CveMatchOut]:
     """
-    Devuelve un CVE por su ID (formato ``CVE-YYYY-NNNN``).
+    Devuelve un CVE por su ID.
     Cachea el resultado por 24h bajo ``cve:id:<ID>``.
     """
     cve_id = cve_id.strip().upper()
     if not cve_id.startswith("CVE-"):
-        raise HTTPException(status_code=400, detail="Formato de CVE inválido")
+        raise HTTPException(status_code=400, detail="Formato de CVE proporcionado es inválido")
 
     cached = await cve_cache.get(f"cve:id:{cve_id}")
     if cached:
         try:
             return CveMatchOut(**cached[0])
         except Exception:
-            logger.warning("[cves] Cache corrupta para %s, refrescando", cve_id)
+            logger.warning("[cves] Cache corrupta para %s, refrescando desde el origen", cve_id)
 
     try:
         raw = await cve_matcher.nvd_client.search_by_cve_id(cve_id)
     except Exception as exc:
-        logger.exception("[cves] Error consultando %s", cve_id)
-        raise HTTPException(status_code=502, detail=f"NVD error: {exc}")
+        logger.exception("[cves] Error en backend consultando la base de datos externa para %s", cve_id)
+        raise HTTPException(
+            status_code=502, 
+            detail="Error temporal al consultar la información del CVE."
+        )
 
     if not raw:
-        raise HTTPException(status_code=404, detail=f"{cve_id} no encontrado")
+        raise HTTPException(status_code=404, detail=f"Identificador {cve_id} no encontrado")
 
     out = CveMatchOut(**raw[0])
     await cve_cache.set(f"cve:id:{cve_id}", [out.model_dump()])

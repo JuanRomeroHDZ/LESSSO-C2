@@ -6,9 +6,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Se añadió 'nmap' a las dependencias del sistema operativo
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
+    nmap \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar solo requirements primero para aprovechar la caché de Docker
